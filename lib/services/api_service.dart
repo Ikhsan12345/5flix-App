@@ -5,12 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:five_flix/models/video_model.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://5flix-backend-production.up.railway.app/api'; // Ganti dengan URL server Anda
+  static const String baseUrl = 'https://5flix-backend-production.up.railway.app/api';
   static String? _authToken;
   
   // Set auth token
   static void setAuthToken(String token) {
-    _authToken = "0Qw2UTwRI2Ib5zykFGrbw8edmjZVyaAJf3X3W1kKdb83cb7b";
+    _authToken = token;
   }
   
   // Get auth headers
@@ -98,10 +98,12 @@ class ApiService {
   // Logout
   static Future<void> logout() async {
     try {
-      await http.post(
-        Uri.parse('$baseUrl/logout'),
-        headers: _headers,
-      );
+      if (_authToken != null) {
+        await http.post(
+          Uri.parse('$baseUrl/logout'),
+          headers: _headers,
+        );
+      }
     } catch (e) {
       debugPrint('Logout error: $e');
     } finally {

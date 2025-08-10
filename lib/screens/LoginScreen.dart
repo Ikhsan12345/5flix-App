@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:five_flix/services/api_service.dart';
+import 'package:five_flix/services/session_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,37 +16,57 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscureText = true;
   bool _isLoading = false;
 
-Future<void> _onLogin() async {
-  if (_formKey.currentState?.validate() ?? false) {
-    setState(() => _isLoading = true);
+  Future<void> _onLogin() async {
+    if (_formKey.currentState?.validate() ?? false) {
+      setState(() => _isLoading = true);
 
-    try {
-      // Hapus hardcode admin check, gunakan API
-      final result = await ApiService.login(username, password);
-      
-      if (result['success'] == true) {
-        final userRole = result['user']['role'];
-        final userToken = result['token'];
-        
-        // Simpan token untuk request selanjutnya
-        await _saveUserSession(userToken, userRole, username);
-        
-        Navigator.pushReplacementNamed(context, '/home', 
-          arguments: {
-            'role': userRole, 
-            'username': username,
-            'token': userToken
-          });
-      } else {
-        _showErrorDialog(result['message']);
+      try {
+        // Gunakan API untuk login
+        final result = await ApiService.login(username, password);
+
+        if (result['success'] == true) {
+          final userRole = result['user']['role'];
+          final userToken = result['token'];
+
+          // Simpan session
+          await SessionService.saveSession(userToken, result['user']);
+
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/home', arguments: {
+              'role': userRole,
+              'username': username,
+              'token': userToken
+            });
+          }
+        } else {
+          _showErrorDialog(result['message'] ?? 'Login gagal');
+        }
+      } catch (e) {
+        _showErrorDialog('Network error: $e');
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
-    } catch (e) {
-      _showErrorDialog('Network error: $e');
-    } finally {
-      setState(() => _isLoading = false);
     }
   }
-}
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: const Text('Login Gagal', style: TextStyle(color: Colors.white)),
+        content: Text(message, style: const TextStyle(color: Color(0xFFB3B3B3))),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Color(0xFFE50914))),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {

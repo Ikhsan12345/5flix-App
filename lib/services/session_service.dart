@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:five_flix/services/api_service.dart';
 
 class SessionService {
@@ -24,5 +26,11 @@ class SessionService {
       return {'token': token, 'user': jsonDecode(userData)};
     }
     return null;
+  }
+
+  static Future<void> clearSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_userKey);
   }
 }

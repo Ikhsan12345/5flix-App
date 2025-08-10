@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:five_flix/models/video_model.dart';
-import 'package:five_flix/models/category_model.dart';
 import 'package:five_flix/services/api_service.dart';
+import 'package:five_flix/services/session_service.dart';
 import 'package:five_flix/screens/VideoDetailScreen.dart';
 import 'package:five_flix/screens/AdminPanelScreen.dart';
 
@@ -33,6 +33,12 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadVideos() async {
     setState(() => isLoading = true);
 
@@ -49,9 +55,9 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       setState(() => isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error loading videos: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading videos: $e')),
+        );
       }
     }
   }
@@ -70,6 +76,20 @@ class _HomeScreenState extends State<HomeScreen> {
             .toList();
       }
     });
+  }
+
+  Future<void> _logout() async {
+    try {
+      await ApiService.logout();
+      await SessionService.clearSession();
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/');
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/');
+      }
+    }
   }
 
   @override
@@ -98,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: const Color(0xFF141414),
       elevation: 0,
       floating: true,
+      automaticallyImplyLeading: false,
       title: Row(
         children: [
           Image.asset(
@@ -108,6 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(
                 color: Color(0xFFE50914),
                 fontWeight: FontWeight.bold,
+                fontSize: 24,
               ),
             ),
           ),
@@ -127,11 +149,43 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
             ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white70),
-            onPressed: () {
-              Navigator.pushReplacementNamed(context, '/');
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.account_circle, color: Colors.white70),
+            color: const Color(0xFF181818),
+            onSelected: (value) {
+              if (value == 'logout') {
+                _logout();
+              }
             },
+            itemBuilder: (BuildContext context) => [
+              PopupMenuItem<String>(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    const Icon(Icons.person, color: Colors.white70, size: 20),
+                    const SizedBox(width: 12),
+                    Text(
+                      username ?? 'User',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, color: Colors.red, size: 20),
+                    SizedBox(width: 12),
+                    Text(
+                      'Logout',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -225,6 +279,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Image.network(
                     video.thumbnailUrl,
                     fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Container(
+                        color: const Color(0xFF333333),
+                        child: const Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE50914)),
+                          ),
+                        ),
+                      );
+                    },
                     errorBuilder: (context, error, stackTrace) => Container(
                       color: const Color(0xFF333333),
                       child: const Icon(
@@ -289,23 +354,37 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 0.7,
+          if (filteredVideos.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(32.0),
+              child: Center(
+                child: Text(
+                  'No movies found',
+                  style: TextStyle(
+                    color: Color(0xFFB3B3B3),
+                    fontSize: 16,
+                  ),
+                ),
               ),
-              itemCount: filteredVideos.length,
-              itemBuilder: (context, index) {
-                return _buildVideoCard(filteredVideos[index]);
-              },
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.7,
+                ),
+                itemCount: filteredVideos.length,
+                itemBuilder: (context, index) {
+                  return _buildVideoCard(filteredVideos[index]);
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -334,6 +413,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: double.infinity,
                       height: double.infinity,
                       fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Container(
+                          color: const Color(0xFF333333),
+                          child: const Center(
+                            child: CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE50914)),
+                            ),
+                          ),
+                        );
+                      },
                       errorBuilder: (context, error, stackTrace) => Container(
                         color: const Color(0xFF333333),
                         child: const Icon(
@@ -423,30 +513,4 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-}
-
-Widget _buildCategoryFilter() {
-  return Container(
-    height: 50,
-    child: ListView.builder(
-      scrollDirection: Axis.horizontal,
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      itemCount: categories.length,
-      itemBuilder: (context, index) {
-        return Padding(
-          padding: EdgeInsets.only(right: 12),
-          child: FilterChip(
-            selected: selectedCategory == categories[index].id,
-            label: Text(categories[index].name),
-            onSelected: (selected) {
-              setState(() {
-                selectedCategory = selected ? categories[index].id : null;
-              });
-              _filterByCategory();
-            },
-          ),
-        );
-      },
-    ),
-  );
 }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:five_flix/database/user_db_helper.dart';
-import 'package:five_flix/models/user_model.dart';
+import 'package:five_flix/services/api_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -20,57 +19,68 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _onRegister() async {
     if (_formKey.currentState?.validate() ?? false) {
       if (username.trim().toLowerCase() == 'admin') {
-        // Cegah pembuatan akun admin
-        showDialog(
-          context: context,
-          builder: (context) => const AlertDialog(
-            title: Text('Pendaftaran Ditolak'),
-            content: Text('Username "admin" tidak diizinkan!'),
-          ),
-        );
+        _showErrorDialog('Username "admin" tidak diizinkan!');
         return;
       }
 
       setState(() => _isLoading = true);
-      // Cek username sudah ada atau belum
-      final db = await UserDbHelper.db;
-      
-      
-      final res = await db.query('users', where: 'username = ?', whereArgs: [username]);
-      if (res.isNotEmpty) {
-        setState(() => _isLoading = false);
-        if (!mounted) return;
-        showDialog(
-          context: context,
-          builder: (context) => const AlertDialog(
-            title: Text('Username sudah terdaftar'),
-          ),
-        );
-        return;
-      }
 
-      // Simpan user ke SQLite
-      await UserDbHelper.insertUser(UserModel(username: username, password: password));
-      setState(() => _isLoading = false);
-      if (!mounted) return;
-      // Info berhasil, kembali ke login
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Registrasi Berhasil'),
-          content: const Text('Silakan login dengan akun yang baru.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context); // tutup dialog
-                Navigator.pop(context); // kembali ke login
-              },
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+      try {
+        final result = await ApiService.register(username, password);
+
+        if (result['success'] == true) {
+          _showSuccessDialog();
+        } else {
+          _showErrorDialog(result['message'] ?? 'Registrasi gagal');
+        }
+      } catch (e) {
+        _showErrorDialog('Network error: $e');
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
     }
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: const Text('Pendaftaran Gagal', style: TextStyle(color: Colors.white)),
+        content: Text(message, style: const TextStyle(color: Color(0xFFB3B3B3))),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Color(0xFFE50914))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: const Text('Registrasi Berhasil', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Silakan login dengan akun yang baru.',
+          style: TextStyle(color: Color(0xFFB3B3B3)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // tutup dialog
+              Navigator.pop(context); // kembali ke login
+            },
+            child: const Text('OK', style: TextStyle(color: Color(0xFFE50914))),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
