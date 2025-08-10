@@ -37,7 +37,7 @@ class ApiService {
   }
 
   // Login
-  static Future<Map<String, dynamic>> login(String username, String password) async {
+    static Future<Map<String, dynamic>> login(String username, String password) async {
     try {
       debugPrint('ApiService: Attempting login for user: $username');
       
@@ -46,7 +46,8 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-        }, // Don't use _headers here as we don't have token yet
+          'User-Agent': 'FiveFlix-Mobile-App/1.0',
+        },
         body: jsonEncode({
           'username': username,
           'password': password,
@@ -54,27 +55,23 @@ class ApiService {
       );
 
       debugPrint('ApiService: Login response status: ${response.statusCode}');
-      debugPrint('ApiService: Login response body: ${response.body}');
 
       final data = jsonDecode(response.body);
       
       if (response.statusCode == 200 && data['success'] == true) {
         setAuthToken(data['token']);
-        debugPrint('ApiService: Login successful for user: ${data['user']['username']}');
         return {
           'success': true,
           'user': data['user'],
           'token': data['token'],
         };
       } else {
-        debugPrint('ApiService: Login failed - ${data['message']}');
         return {
           'success': false,
           'message': data['message'] ?? 'Login gagal',
         };
       }
     } catch (e) {
-      debugPrint('ApiService: Login error - $e');
       return {
         'success': false,
         'message': 'Koneksi bermasalah: $e',
@@ -415,6 +412,7 @@ class ApiService {
     }
   }
 
+
   // Check connection with better error handling
   static Future<bool> checkConnection() async {
     try {
@@ -522,5 +520,52 @@ class ApiService {
     }
     
     return results;
+  }
+
+  static Future<String?> getAuthorizedMediaUrl(int videoId, String type) async {
+    try {
+      debugPrint('ApiService: Getting authorized $type URL for video ID: $videoId');
+      
+      final endpoint = type == 'video' ? 'stream' : 'thumbnail';
+      final response = await http.get(
+        Uri.parse('$baseUrl/videos/$videoId/$endpoint-url'), // Endpoint baru yang simple
+        headers: _headers,
+      ).timeout(const Duration(seconds: 15));
+
+      debugPrint('ApiService: $type URL response status: ${response.statusCode}');
+      debugPrint('ApiService: $type URL response: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['url'] != null) {
+          final authorizedUrl = data['url'];
+          debugPrint('ApiService: Got authorized $type URL: ${authorizedUrl.substring(0, 50)}...');
+          return authorizedUrl;
+        }
+      }
+      
+      debugPrint('ApiService: Failed to get authorized $type URL');
+      return null;
+    } catch (e) {
+      debugPrint('ApiService: Error getting authorized $type URL: $e');
+      return null;
+    }}
+    static Future<bool> testUrlAccess(String url, {Map<String, String>? headers}) async {
+    try {
+      debugPrint('ApiService: Testing URL access: ${url.substring(0, 50)}...');
+      
+      final response = await http.head(
+        Uri.parse(url),
+        headers: headers ?? {
+          'User-Agent': 'FiveFlix-Mobile-App/1.0',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint('ApiService: URL test response: ${response.statusCode}');
+      return response.statusCode >= 200 && response.statusCode < 400;
+    } catch (e) {
+      debugPrint('ApiService: URL test error: $e');
+      return false;
+    }
   }
 }

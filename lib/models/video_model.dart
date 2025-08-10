@@ -23,6 +23,7 @@ class VideoModel {
 
   factory VideoModel.fromJson(Map<String, dynamic> json) {
     try {
+      // Keep URLs as-is from API, we'll handle authorization in widgets
       return VideoModel(
         id: _parseInt(json['id']),
         title: json['title']?.toString() ?? '',
@@ -35,14 +36,21 @@ class VideoModel {
         isFeatured: _parseBool(json['is_featured']),
       );
     } catch (e) {
-      // Debug print the problematic JSON
       print('VideoModel.fromJson error: $e');
-      print('Problematic JSON: $json');
       rethrow;
     }
   }
 
-  // Helper method untuk parsing integer dengan fallback
+  // Check if this is a B2 URL that needs special handling
+  bool get isB2Video {
+    return videoUrl.contains('backblazeb2.com') || videoUrl.contains('.b2.');
+  }
+
+  bool get isB2Thumbnail {
+    return thumbnailUrl.contains('backblazeb2.com') || thumbnailUrl.contains('.b2.');
+  }
+
+  // Helper methods
   static int _parseInt(dynamic value) {
     if (value == null) return 0;
     if (value is int) return value;
@@ -53,7 +61,6 @@ class VideoModel {
     return 0;
   }
 
-  // Helper method untuk parsing boolean dari berbagai format
   static bool _parseBool(dynamic value) {
     if (value == null) return false;
     if (value is bool) return value;
@@ -66,7 +73,6 @@ class VideoModel {
     return false;
   }
 
-  // Convert to JSON
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -107,8 +113,7 @@ extension VideoModelExtension on VideoModel {
     );
   }
 
-  // Helper untuk debug
   String toDebugString() {
-    return 'VideoModel(id: $id, title: "$title", genre: "$genre", year: $year, duration: $duration, isFeatured: $isFeatured)';
+    return 'VideoModel(id: $id, title: "$title", isB2Video: $isB2Video, isB2Thumbnail: $isB2Thumbnail)';
   }
 }

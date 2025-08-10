@@ -33,13 +33,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      final args =
+          ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       userRole = args?['role'] ?? 'user';
       username = args?['username'] ?? '';
-      
+
       // Debug: Print user info
       debugPrint('HomeScreen - User Role: $userRole, Username: $username');
-      
+
       _loadData();
     });
   }
@@ -59,14 +60,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     try {
       debugPrint('Checking network connection...');
-      
+
       // Check network connectivity
       final hasConnection = await ApiService.checkConnection();
       debugPrint('Network connection: $hasConnection');
-      
+
       setState(() {
         isOffline = !hasConnection;
-        debugMessage = hasConnection ? 'Connected - Loading from API' : 'Offline - Loading cached data';
+        debugMessage = hasConnection
+            ? 'Connected - Loading from API'
+            : 'Offline - Loading cached data';
       });
 
       if (hasConnection) {
@@ -94,15 +97,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _loadOnlineData() async {
     try {
       debugPrint('Loading videos from API...');
-      
+
       final loadedVideos = await ApiService.getVideos();
       debugPrint('API returned ${loadedVideos.length} videos');
-      
+
       // Debug: Print first video if exists
       if (loadedVideos.isNotEmpty) {
         debugPrint('First video: ${loadedVideos[0].title}');
       }
-      
+
       final featured = loadedVideos.where((v) => v.isFeatured).toList();
       debugPrint('Featured videos: ${featured.length}');
 
@@ -133,10 +136,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _loadOfflineData() async {
     try {
       debugPrint('Loading videos from cache...');
-      
+
       final cachedVideos = await UserDbHelper.getCachedVideos();
       debugPrint('Cache returned ${cachedVideos.length} videos');
-      
+
       final featured = cachedVideos.where((v) => v.isFeatured).toList();
 
       setState(() {
@@ -211,26 +214,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _testApiConnection() async {
     try {
       debugPrint('Testing API connection...');
-      
+
       // Test basic connection
       final hasConnection = await ApiService.checkConnection();
       debugPrint('Basic connection test: $hasConnection');
-      
+
       if (hasConnection) {
         // Debug raw response first
         await ApiService.debugRawResponse();
-        
+
         // Test getVideos
         final videos = await ApiService.getVideos();
         debugPrint('getVideos returned: ${videos.length} videos');
-        
+
         // Show result in dialog
         if (mounted) {
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
               backgroundColor: const Color(0xFF181818),
-              title: const Text('API Test Result', style: TextStyle(color: Colors.white)),
+              title: const Text(
+                'API Test Result',
+                style: TextStyle(color: Colors.white),
+              ),
               content: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,10 +253,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                     if (videos.isNotEmpty) ...[
                       const SizedBox(height: 10),
-                      const Text('Sample video:', style: TextStyle(color: Colors.white)),
+                      const Text(
+                        'Sample video:',
+                        style: TextStyle(color: Colors.white),
+                      ),
                       Text(
                         '${videos[0].title} (${videos[0].year})',
-                        style: const TextStyle(color: Color(0xFFB3B3B3), fontSize: 12),
+                        style: const TextStyle(
+                          color: Color(0xFFB3B3B3),
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ],
@@ -259,7 +271,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('OK', style: TextStyle(color: Color(0xFFE50914))),
+                  child: const Text(
+                    'OK',
+                    style: TextStyle(color: Color(0xFFE50914)),
+                  ),
                 ),
               ],
             ),
@@ -273,7 +288,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           context: context,
           builder: (context) => AlertDialog(
             backgroundColor: const Color(0xFF181818),
-            title: const Text('API Test Error', style: TextStyle(color: Colors.white)),
+            title: const Text(
+              'API Test Error',
+              style: TextStyle(color: Colors.white),
+            ),
             content: Text(
               'Error: $e\nCheck console for details',
               style: const TextStyle(color: Colors.red),
@@ -281,7 +299,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('OK', style: TextStyle(color: Color(0xFFE50914))),
+                child: const Text(
+                  'OK',
+                  style: TextStyle(color: Color(0xFFE50914)),
+                ),
               ),
             ],
           ),
@@ -304,7 +325,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             Expanded(
               child: isLoading
                   ? const Center(
-                      child: CircularProgressIndicator(color: Color(0xFFE50914)),
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFE50914),
+                      ),
                     )
                   : TabBarView(
                       controller: _tabController,
@@ -392,14 +415,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               },
             ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.account_circle, color: Colors.white70, size: 22),
+            icon: const Icon(
+              Icons.account_circle,
+              color: Colors.white70,
+              size: 22,
+            ),
             color: const Color(0xFF181818),
             onSelected: (value) {
               switch (value) {
                 case 'downloads':
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const DownloadsScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const DownloadsScreen(),
+                    ),
                   );
                   break;
                 case 'clear_cache':
@@ -496,7 +525,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onPressed: _refreshData,
             child: const Text(
               'Retry',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -656,9 +688,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onChanged: _filterVideos,
           ),
         ),
-        Expanded(
-          child: _buildVideoGrid(filteredVideos),
-        ),
+        Expanded(child: _buildVideoGrid(filteredVideos)),
       ],
     );
   }
@@ -695,7 +725,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  SliverToBoxAdapter _buildAllVideosSection(List<VideoModel> videoList, String title) {
+  SliverToBoxAdapter _buildAllVideosSection(
+    List<VideoModel> videoList,
+    String title,
+  ) {
     return SliverToBoxAdapter(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -724,10 +757,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: Center(
           child: Text(
             'No videos found',
-            style: TextStyle(
-              color: Color(0xFFB3B3B3),
-              fontSize: 16,
-            ),
+            style: TextStyle(color: Color(0xFFB3B3B3), fontSize: 16),
           ),
         ),
       );
@@ -754,9 +784,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildFeaturedVideoCard(VideoModel video) {
     final isDownloaded = downloadedVideos.any((d) => d.id == video.id);
-    
+
     return Container(
-      width: 280, // Kurangi width untuk menghindari overflow
+      width: 300,
       margin: const EdgeInsets.only(right: 12),
       child: Card(
         color: const Color(0xFF181818),
@@ -770,56 +800,35 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               Expanded(
                 flex: 3,
                 child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(12),
+                  ),
                   child: Stack(
                     children: [
-                      Container(
+                      Image.network(
+                        video.thumbnailUrl,
+                        fit: BoxFit.cover,
                         width: double.infinity,
-                        color: const Color(0xFF333333),
-                        child: Image.network(
-                          video.thumbnailUrl,
-                          fit: BoxFit.cover,
-                          headers: const {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                          },
-                          loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) return child;
-                            return Container(
-                              color: const Color(0xFF333333),
-                              child: Center(
-                                child: CircularProgressIndicator(
-                                  value: loadingProgress.expectedTotalBytes != null
-                                      ? loadingProgress.cumulativeBytesLoaded / 
-                                        loadingProgress.expectedTotalBytes!
-                                      : null,
-                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE50914)),
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            color: const Color(0xFF333333),
+                            child: const Center(
+                              child: CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFFE50914),
                                 ),
                               ),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) {
-                            debugPrint('Thumbnail load error for ${video.title}: $error');
-                            return Container(
-                              color: const Color(0xFF333333),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.movie, color: Colors.white54, size: 40),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    video.title,
-                                    style: const TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 10,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          color: const Color(0xFF333333),
+                          child: const Icon(
+                            Icons.movie,
+                            color: Colors.white54,
+                            size: 50,
+                          ),
                         ),
                       ),
                       if (isDownloaded)
@@ -832,29 +841,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               color: Colors.green,
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Icon(Icons.download_done, color: Colors.white, size: 14),
-                          ),
-                        ),
-                      // Featured badge
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE50914),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'FEATURED',
-                            style: TextStyle(
+                            child: const Icon(
+                              Icons.download_done,
                               color: Colors.white,
-                              fontSize: 8,
-                              fontWeight: FontWeight.bold,
+                              size: 16,
                             ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -872,17 +865,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
-                          fontSize: 12,
                         ),
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 2),
                       Text(
                         '${video.year} • ${video.genre}',
                         style: const TextStyle(
                           color: Color(0xFFB3B3B3),
-                          fontSize: 10,
+                          fontSize: 12,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -900,7 +891,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildVideoCard(VideoModel video) {
     final isDownloaded = downloadedVideos.any((d) => d.id == video.id);
-    
+
     return Card(
       color: const Color(0xFF181818),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -913,60 +904,36 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             Expanded(
               flex: 4,
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(12),
+                ),
                 child: Stack(
                   children: [
-                    Container(
+                    Image.network(
+                      video.thumbnailUrl,
                       width: double.infinity,
                       height: double.infinity,
-                      color: const Color(0xFF333333),
-                      child: Image.network(
-                        video.thumbnailUrl,
-                        fit: BoxFit.cover,
-                        headers: const {
-                          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        },
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
-                            color: const Color(0xFF333333),
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                value: loadingProgress.expectedTotalBytes != null
-                                    ? loadingProgress.cumulativeBytesLoaded / 
-                                      loadingProgress.expectedTotalBytes!
-                                    : null,
-                                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE50914)),
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Container(
+                          color: const Color(0xFF333333),
+                          child: const Center(
+                            child: CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFFE50914),
                               ),
                             ),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) {
-                          debugPrint('Thumbnail load error for ${video.title}: $error');
-                          return Container(
-                            color: const Color(0xFF333333),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.movie, color: Colors.white54, size: 40),
-                                const SizedBox(height: 4),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                                  child: Text(
-                                    video.title,
-                                    style: const TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 10,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        color: const Color(0xFF333333),
+                        child: const Icon(
+                          Icons.movie,
+                          color: Colors.white54,
+                          size: 50,
+                        ),
                       ),
                     ),
                     if (video.isFeatured)
@@ -974,7 +941,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         top: 8,
                         right: 8,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFE50914),
                             borderRadius: BorderRadius.circular(4),
@@ -983,7 +953,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             'FEATURED',
                             style: TextStyle(
                               color: Colors.white,
-                              fontSize: 8,
+                              fontSize: 10,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -999,7 +969,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             color: Colors.green,
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Icon(Icons.download_done, color: Colors.white, size: 14),
+                          child: const Icon(
+                            Icons.download_done,
+                            color: Colors.white,
+                            size: 16,
+                          ),
                         ),
                       ),
                   ],
@@ -1019,7 +993,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                        fontSize: 14,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -1028,7 +1002,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       '${video.year} • ${video.genre}',
                       style: const TextStyle(
                         color: Color(0xFFB3B3B3),
-                        fontSize: 10,
+                        fontSize: 12,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1037,7 +1011,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       '${video.duration} min',
                       style: const TextStyle(
                         color: Color(0xFFB3B3B3),
-                        fontSize: 9,
+                        fontSize: 10,
                       ),
                     ),
                   ],
@@ -1054,10 +1028,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => VideoDetailScreen(
-          video: video,
-          userRole: userRole ?? 'user',
-        ),
+        builder: (context) =>
+            VideoDetailScreen(video: video, userRole: userRole ?? 'user'),
       ),
     );
   }
@@ -1075,7 +1047,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFFB3B3B3))),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Color(0xFFB3B3B3)),
+            ),
           ),
           TextButton(
             onPressed: () async {
@@ -1089,7 +1064,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               );
               _refreshData();
             },
-            child: const Text('Clear', style: TextStyle(color: Color(0xFFE50914))),
+            child: const Text(
+              'Clear',
+              style: TextStyle(color: Color(0xFFE50914)),
+            ),
           ),
         ],
       ),
