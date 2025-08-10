@@ -22,17 +22,63 @@ class VideoModel {
   });
 
   factory VideoModel.fromJson(Map<String, dynamic> json) {
-    return VideoModel(
-      id: json['id'],
-      title: json['title'],
-      genre: json['genre'],
-      thumbnailUrl: json['thumbnail_url'],
-      videoUrl: json['video_url'],
-      description: json['description'],
-      duration: json['duration'],
-      year: json['year'],
-      isFeatured: json['is_featured'] ?? false,
-    );
+    try {
+      return VideoModel(
+        id: _parseInt(json['id']),
+        title: json['title']?.toString() ?? '',
+        genre: json['genre']?.toString() ?? '',
+        thumbnailUrl: json['thumbnail_url']?.toString() ?? '',
+        videoUrl: json['video_url']?.toString() ?? '',
+        description: json['description']?.toString(),
+        duration: _parseInt(json['duration']),
+        year: _parseInt(json['year']),
+        isFeatured: _parseBool(json['is_featured']),
+      );
+    } catch (e) {
+      // Debug print the problematic JSON
+      print('VideoModel.fromJson error: $e');
+      print('Problematic JSON: $json');
+      rethrow;
+    }
+  }
+
+  // Helper method untuk parsing integer dengan fallback
+  static int _parseInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+    if (value is double) return value.toInt();
+    return 0;
+  }
+
+  // Helper method untuk parsing boolean dari berbagai format
+  static bool _parseBool(dynamic value) {
+    if (value == null) return false;
+    if (value is bool) return value;
+    if (value is int) return value != 0;
+    if (value is String) {
+      final lower = value.toLowerCase();
+      return lower == 'true' || lower == '1' || lower == 'yes';
+    }
+    if (value is double) return value != 0.0;
+    return false;
+  }
+
+  // Convert to JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'genre': genre,
+      'thumbnail_url': thumbnailUrl,
+      'video_url': videoUrl,
+      'description': description,
+      'duration': duration,
+      'year': year,
+      'is_featured': isFeatured,
+    };
   }
 }
 
@@ -59,5 +105,10 @@ extension VideoModelExtension on VideoModel {
       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
       videoUrl: videoUrl ?? this.videoUrl,
     );
+  }
+
+  // Helper untuk debug
+  String toDebugString() {
+    return 'VideoModel(id: $id, title: "$title", genre: "$genre", year: $year, duration: $duration, isFeatured: $isFeatured)';
   }
 }
