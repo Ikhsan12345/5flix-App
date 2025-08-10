@@ -1,7 +1,3 @@
-// ============================================================================
-// FIXED VideoDetailScreen.dart - SliverAppBar Implementation
-// ============================================================================
-
 import 'package:flutter/material.dart';
 import 'package:five_flix/models/video_model.dart';
 import 'package:five_flix/services/download_service.dart';
@@ -32,7 +28,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   void initState() {
     super.initState();
     _checkDownloadStatus();
-    _debugVideoUrls();
+    _debugVideoInfo();
   }
 
   Future<void> _checkDownloadStatus() async {
@@ -42,60 +38,69 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     });
   }
 
-  void _debugVideoUrls() {
-    print('=== DEBUG VIDEO URLS ===');
-    print('Video ID: ${widget.video.id}');
-    print('Video Title: ${widget.video.title}');
-    print('Thumbnail URL: ${widget.video.thumbnailUrl}');
-    print('Video URL: ${widget.video.videoUrl}');
-    print('Is B2 Thumbnail: ${widget.video.isB2Thumbnail ?? 'Property not available'}');
-    print('Is B2 Video: ${widget.video.isB2Video ?? 'Property not available'}');
-    print('Thumbnail URL length: ${widget.video.thumbnailUrl.length}');
-    print('Video URL length: ${widget.video.videoUrl.length}');
-    
-    // Check if URLs are valid
-    bool isThumbnailValid = Uri.tryParse(widget.video.thumbnailUrl) != null;
-    bool isVideoValid = Uri.tryParse(widget.video.videoUrl) != null;
-    
-    print('Thumbnail URL valid: $isThumbnailValid');
-    print('Video URL valid: $isVideoValid');
-    print('Auth token available: ${ApiService.getCurrentToken() != null}');
-    print('========================');
+  void _debugVideoInfo() {
+    debugPrint('=== VIDEO DETAIL DEBUG INFO ===');
+    debugPrint('Video: ${widget.video.toDebugString()}');
+    debugPrint('Thumbnail URL: ${widget.video.displayThumbnailUrl}');
+    debugPrint('Playback URL: ${widget.video.playbackUrl}');
+    debugPrint('Duration: ${widget.video.displayDuration}');
+    debugPrint('Is B2 Video: ${widget.video.isB2Video}');
+    debugPrint('Is B2 Thumbnail: ${widget.video.isB2Thumbnail}');
+    debugPrint('Stream URL available: ${widget.video.streamUrl != null}');
+    debugPrint('Auth token available: ${ApiService.getCurrentToken() != null}');
+    debugPrint('================================');
   }
 
   Future<void> _downloadVideo() async {
     setState(() {
       _isDownloading = true;
       _downloadProgress = 0.0;
-      _downloadStatus = 'Starting download...';
+      _downloadStatus = 'Preparing download...';
     });
 
-    final success = await DownloadService.downloadVideoWithProgress(
-      widget.video,
-      onProgress: (progress) {
-        setState(() {
-          _downloadProgress = progress;
-        });
-      },
-      onStatusChange: (status) {
-        setState(() {
-          _downloadStatus = status;
-        });
-      },
-    );
-
-    setState(() {
-      _isDownloading = false;
-      _isDownloaded = success;
-    });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? 'Video downloaded successfully' : 'Download failed'),
-          backgroundColor: success ? Colors.green : const Color(0xFFE50914),
-        ),
+    try {
+      final success = await DownloadService.downloadVideoWithProgress(
+        widget.video,
+        onProgress: (progress) {
+          setState(() {
+            _downloadProgress = progress;
+          });
+        },
+        onStatusChange: (status) {
+          setState(() {
+            _downloadStatus = status;
+          });
+        },
       );
+
+      setState(() {
+        _isDownloading = false;
+        _isDownloaded = success;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success ? 'Video downloaded successfully' : 'Download failed'),
+            backgroundColor: success ? Colors.green : const Color(0xFFE50914),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Download error: $e');
+      setState(() {
+        _isDownloading = false;
+        _downloadStatus = 'Download failed: $e';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Download failed: $e'),
+            backgroundColor: const Color(0xFFE50914),
+          ),
+        );
+      }
     }
   }
 
@@ -141,6 +146,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   Future<void> _playOfflineVideo() async {
     try {
+      debugPrint('Playing offline video: ${widget.video.title}');
+      
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -152,7 +159,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               CircularProgressIndicator(color: Color(0xFFE50914)),
               SizedBox(height: 16),
               Text(
-                'Preparing video...',
+                'Preparing offline video...',
                 style: TextStyle(color: Colors.white),
               ),
             ],
@@ -164,7 +171,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       
       if (mounted) Navigator.pop(context);
 
-      if (decryptedFile != null) {
+      if (decryptedFile != null && decryptedFile.existsSync()) {
+        debugPrint('Playing decrypted file: ${decryptedFile.path}');
+        
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -175,9 +184,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           ),
         );
       } else {
-        throw Exception('Failed to decrypt video file');
+        throw Exception('Decrypted video file not found or inaccessible');
       }
     } catch (e) {
+      debugPrint('Error playing offline video: $e');
+      
       if (mounted && Navigator.canPop(context)) {
         Navigator.pop(context);
       }
@@ -185,7 +196,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error playing video: $e'),
+            content: Text('Error playing offline video: $e'),
             backgroundColor: const Color(0xFFE50914),
           ),
         );
@@ -195,16 +206,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   Future<void> _playOnlineVideo() async {
     try {
-      print('=== PLAYING ONLINE VIDEO ===');
-      print('Video: ${widget.video.title}');
-      print('Original URL: ${widget.video.videoUrl}');
-      
-      // Check if this is a B2 URL
-      bool isB2Url = widget.video.videoUrl.contains('backblazeb2.com') || 
-                    widget.video.videoUrl.contains('.b2.');
-      print('Is B2 URL: $isB2Url');
+      debugPrint('=== PLAYING ONLINE VIDEO ===');
+      debugPrint('Video: ${widget.video.title}');
+      debugPrint('Stream URL: ${widget.video.streamUrl}');
+      debugPrint('Video URL: ${widget.video.videoUrl}');
+      debugPrint('Playback URL: ${widget.video.playbackUrl}');
+      debugPrint('Is B2 Video: ${widget.video.isB2Video}');
 
-      // Show loading
+      // Show loading dialog
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -215,7 +224,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             children: [
               CircularProgressIndicator(color: Color(0xFFE50914)),
               SizedBox(height: 16),
-              Text('Preparing video...', style: TextStyle(color: Colors.white)),
+              Text('Preparing video stream...', style: TextStyle(color: Colors.white)),
             ],
           ),
         ),
@@ -223,68 +232,40 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
       String? playableUrl;
 
-      if (isB2Url) {
-        // Try to get authorized URL from backend
-        playableUrl = await ApiService.getAuthorizedMediaUrl(widget.video.id, 'video');
+      // Handle different URL scenarios
+      if (widget.video.isB2Video) {
+        debugPrint('B2 Video detected - getting authorized stream URL');
+        
+        // Try to get stream URL from backend
+        playableUrl = await ApiService.getVideoStreamUrl(widget.video.id);
         
         if (playableUrl == null) {
-          // Show error - B2 needs backend support
+          // Close loading dialog
           if (mounted) Navigator.pop(context);
           
+          // Show B2 authorization error
           if (mounted) {
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                backgroundColor: const Color(0xFF181818),
-                title: const Text('Video Not Available', style: TextStyle(color: Colors.white)),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'This video is stored in B2 cloud storage and requires backend authorization to stream.',
-                      style: TextStyle(color: Color(0xFFB3B3B3)),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.2),
-                        border: Border.all(color: Colors.orange),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        'Contact administrator to enable B2 streaming support',
-                        style: TextStyle(color: Colors.orange, fontSize: 12),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Video URL: ${widget.video.videoUrl}',
-                      style: const TextStyle(color: Colors.grey, fontSize: 10),
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('OK', style: TextStyle(color: Color(0xFFE50914))),
-                  ),
-                ],
-              ),
-            );
+            _showB2AuthError();
           }
           return;
         }
+        
+        debugPrint('Got authorized B2 stream URL: $playableUrl');
       } else {
-        // Regular URL
-        playableUrl = widget.video.videoUrl;
+        // Use the best available URL
+        playableUrl = widget.video.playbackUrl;
+        debugPrint('Using direct playback URL: $playableUrl');
       }
 
-      // Close loading
+      // Validate URL
+      if (playableUrl.isEmpty || Uri.tryParse(playableUrl) == null) {
+        throw Exception('Invalid video URL: $playableUrl');
+      }
+
+      // Close loading dialog
       if (mounted) Navigator.pop(context);
 
-      print('Final playable URL: $playableUrl');
+      debugPrint('Final playable URL: $playableUrl');
 
       // Navigate to player
       Navigator.push(
@@ -298,6 +279,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       );
 
     } catch (e) {
+      debugPrint('Error playing online video: $e');
+      
       if (mounted && Navigator.canPop(context)) {
         Navigator.pop(context);
       }
@@ -313,17 +296,105 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
   }
 
-  void _debugAndPlayVideo() {
-    print('=== DEBUG PLAY VIDEO ===');
-    print('Is Downloaded: $_isDownloaded');
-    print('Video URL: ${widget.video.videoUrl}');
-    print('Video URL valid: ${Uri.tryParse(widget.video.videoUrl) != null}');
+  void _showB2AuthError() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: const Row(
+          children: [
+            Icon(Icons.cloud_off, color: Colors.orange, size: 24),
+            SizedBox(width: 8),
+            Text('Video Not Available', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This video is stored in B2 cloud storage and requires backend authorization to stream.',
+              style: TextStyle(color: Color(0xFFB3B3B3)),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange, size: 16),
+                      SizedBox(width: 8),
+                      Text(
+                        'Solution:',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '• Contact administrator to enable B2 streaming\n'
+                    '• Or download the video for offline playback',
+                    style: TextStyle(color: Colors.orange, fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Video ID: ${widget.video.id}',
+                    style: const TextStyle(color: Colors.grey, fontSize: 10),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (!_isDownloaded && !_isDownloading)
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _downloadVideo();
+              },
+              icon: const Icon(Icons.download, color: Colors.blue, size: 18),
+              label: const Text('Download', style: TextStyle(color: Colors.blue)),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Color(0xFFE50914))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _playVideo() {
+    debugPrint('=== PLAY VIDEO REQUESTED ===');
+    debugPrint('Is Downloaded: $_isDownloaded');
+    debugPrint('Is Downloading: $_isDownloading');
+    
+    if (_isDownloading) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please wait for download to complete'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     
     if (_isDownloaded) {
-      print('Playing offline video...');
+      debugPrint('Playing offline video...');
       _playOfflineVideo();
     } else {
-      print('Playing online video...');
+      debugPrint('Playing online video...');
       _playOnlineVideo();
     }
   }
@@ -345,8 +416,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   const SizedBox(height: 24),
                   _buildActionButtons(),
                   const SizedBox(height: 24),
-                  _buildDescription(),
-                  const SizedBox(height: 24),
+                  if (widget.video.description?.isNotEmpty == true)
+                    ...[_buildDescription(), const SizedBox(height: 24)],
                   _buildVideoSpecs(),
                 ],
               ),
@@ -357,7 +428,6 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     );
   }
 
-  // FIXED SliverAppBar - Remove conflicting parameters
   SliverAppBar _buildSliverAppBar() {
     return SliverAppBar(
       expandedHeight: 300,
@@ -368,12 +438,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         background: Stack(
           fit: StackFit.expand,
           children: [
-            // Use AuthorizedNetworkImage if available, otherwise fallback to regular image
-            Container(
-              width: double.infinity,
-              height: double.infinity,
-              child: _buildThumbnailImage(),
-            ),
+            // Thumbnail image
+            _buildThumbnailImage(),
             
             // Gradient overlay
             Container(
@@ -395,9 +461,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   shape: BoxShape.circle,
                 ),
                 child: IconButton(
-                  onPressed: _debugAndPlayVideo,
-                  icon: const Icon(
-                    Icons.play_arrow,
+                  onPressed: _playVideo,
+                  icon: Icon(
+                    _isDownloaded ? Icons.play_circle_filled : Icons.play_arrow,
                     color: Colors.white,
                     size: 50,
                   ),
@@ -405,74 +471,109 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               ),
             ),
             
-            // Featured badge
-            if (widget.video.isFeatured)
-              Positioned(
-                top: 60,
-                right: 16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE50914),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    'FEATURED',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              
-            // Downloaded badge
-            if (_isDownloaded)
-              Positioned(
-                top: 60,
-                left: 16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.offline_pin, color: Colors.white, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'DOWNLOADED',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            // Status badges
+            _buildStatusBadges(),
           ],
         ),
       ),
     );
   }
 
-  // Separate method to build thumbnail image with proper error handling
+  Widget _buildStatusBadges() {
+    return Stack(
+      children: [
+        // Featured badge
+        if (widget.video.isFeatured)
+          Positioned(
+            top: 60,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE50914),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text(
+                'FEATURED',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        
+        // Downloaded badge
+        if (_isDownloaded)
+          Positioned(
+            top: 60,
+            left: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.9),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.offline_pin, color: Colors.white, size: 16),
+                  SizedBox(width: 4),
+                  Text(
+                    'DOWNLOADED',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        
+        // B2 Storage badge
+        if (widget.video.isB2Video && !_isDownloaded)
+          Positioned(
+            top: widget.video.isFeatured ? 100 : 60,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.9),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud, color: Colors.white, size: 16),
+                  SizedBox(width: 4),
+                  Text(
+                    'B2 STORAGE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildThumbnailImage() {
-    // Check if we have AuthorizedNetworkImage available
-    // If not, use regular Image.network with enhanced headers
+    final thumbnailUrl = widget.video.displayThumbnailUrl;
     
-    if (widget.video.thumbnailUrl.isEmpty) {
-      return _buildPlaceholderThumbnail('No thumbnail URL available');
+    if (thumbnailUrl.isEmpty) {
+      return _buildPlaceholderThumbnail('No thumbnail available');
     }
 
-    // Try with authorization headers first
     return Image.network(
-      widget.video.thumbnailUrl,
+      thumbnailUrl,
       fit: BoxFit.cover,
       headers: {
         'User-Agent': 'FiveFlix-Mobile-App/1.0',
@@ -503,23 +604,19 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   'Loading thumbnail...',
                   style: TextStyle(color: Colors.white54, fontSize: 12),
                 ),
-                Text(
-                  '${((loadingProgress.cumulativeBytesLoaded / (loadingProgress.expectedTotalBytes ?? 1)) * 100).toInt()}%',
-                  style: const TextStyle(color: Colors.white54, fontSize: 10),
-                ),
+                if (loadingProgress.expectedTotalBytes != null)
+                  Text(
+                    '${((loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!) * 100).toInt()}%',
+                    style: const TextStyle(color: Colors.white54, fontSize: 10),
+                  ),
               ],
             ),
           ),
         );
       },
       errorBuilder: (context, error, stackTrace) {
-        print('Thumbnail loading error: $error');
-        print('Thumbnail URL: ${widget.video.thumbnailUrl}');
-        print('Stack trace: $stackTrace');
-        
-        // Check if it's a B2 URL
-        bool isB2 = widget.video.thumbnailUrl.contains('backblazeb2.com') || 
-                   widget.video.thumbnailUrl.contains('.b2.');
+        debugPrint('Thumbnail loading error: $error');
+        debugPrint('Thumbnail URL: $thumbnailUrl');
         
         return Container(
           color: const Color(0xFF333333),
@@ -527,15 +624,17 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                isB2 ? Icons.cloud_off : Icons.broken_image,
-                color: isB2 ? Colors.orange : Colors.red,
+                widget.video.isB2Thumbnail ? Icons.cloud_off : Icons.broken_image,
+                color: widget.video.isB2Thumbnail ? Colors.orange : Colors.red,
                 size: 64,
               ),
               const SizedBox(height: 8),
               Text(
-                isB2 ? 'B2 Authorization Required' : 'Thumbnail failed to load',
+                widget.video.isB2Thumbnail 
+                    ? 'B2 Authorization Required' 
+                    : 'Thumbnail failed to load',
                 style: TextStyle(
-                  color: isB2 ? Colors.orange : Colors.red,
+                  color: widget.video.isB2Thumbnail ? Colors.orange : Colors.red,
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
@@ -555,36 +654,6 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const SizedBox(height: 8),
-              if (isB2)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    'Backend streaming support needed',
-                    style: TextStyle(
-                      color: Colors.orange,
-                      fontSize: 10,
-                    ),
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    'URL: ${widget.video.thumbnailUrl.length > 40 ? '${widget.video.thumbnailUrl.substring(0, 40)}...' : widget.video.thumbnailUrl}',
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 8,
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
             ],
           ),
         );
@@ -614,7 +683,6 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     );
   }
 
-  // Rest of your existing methods remain the same...
   Widget _buildVideoInfo() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -648,7 +716,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             ),
             const SizedBox(width: 16),
             Text(
-              '${widget.video.duration} min',
+              widget.video.displayDuration,
               style: const TextStyle(color: Color(0xFFB3B3B3), fontSize: 16),
             ),
           ],
@@ -664,7 +732,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: _isDownloaded ? _playOfflineVideo : _playOnlineVideo,
+            onPressed: _isDownloading ? null : _playVideo,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
               foregroundColor: Colors.black,
@@ -684,131 +752,144 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           ),
         ),
         const SizedBox(height: 12),
+        
         // Download/Delete button
         SizedBox(
           width: double.infinity,
           child: _isDownloaded
-              ? Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _deleteDownload,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        icon: const Icon(Icons.delete, size: 24),
-                        label: const Text(
-                          'Delete Download',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.2),
-                        border: Border.all(color: Colors.green),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.security, color: Colors.green, size: 20),
-                          SizedBox(width: 8),
-                          Text(
-                            'Encrypted',
-                            style: TextStyle(
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                )
-              : OutlinedButton.icon(
-                  onPressed: _isDownloading ? null : _downloadVideo,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  icon: _isDownloading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Icon(Icons.download, size: 24),
-                  label: Text(
-                    _isDownloading
-                        ? _downloadStatus.isNotEmpty 
-                            ? _downloadStatus
-                            : 'Downloading... ${(_downloadProgress * 100).toInt()}%'
-                        : 'Download & Encrypt',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
+              ? _buildDownloadedActions()
+              : _buildDownloadButton(),
         ),
+        
+        // Download progress
         if (_isDownloading && _downloadProgress > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 12.0),
-            child: Column(
-              children: [
-                LinearProgressIndicator(
-                  value: _downloadProgress,
-                  backgroundColor: Colors.grey[800],
-                  valueColor: const AlwaysStoppedAnimation<Color>(
-                    Color(0xFFE50914),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _downloadStatus,
-                      style: const TextStyle(
-                        color: Color(0xFFB3B3B3),
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      '${(_downloadProgress * 100).toInt()}%',
-                      style: const TextStyle(
-                        color: Color(0xFFB3B3B3),
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          _buildDownloadProgress(),
       ],
     );
   }
 
-  Widget _buildDescription() {
-    final desc = widget.video.description ?? '';
-    if (desc.isEmpty) {
-      return const SizedBox.shrink();
-    }
+  Widget _buildDownloadedActions() {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: _deleteDownload,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: const BorderSide(color: Colors.red),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            icon: const Icon(Icons.delete, size: 24),
+            label: const Text(
+              'Delete Download',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.green.withOpacity(0.2),
+            border: Border.all(color: Colors.green),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.security, color: Colors.green, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Encrypted',
+                style: TextStyle(
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
+  Widget _buildDownloadButton() {
+    return OutlinedButton.icon(
+      onPressed: _isDownloading ? null : _downloadVideo,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        side: const BorderSide(color: Colors.white),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      icon: _isDownloading
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Icon(Icons.download, size: 24),
+      label: Text(
+        _isDownloading
+            ? _downloadStatus.isNotEmpty 
+                ? _downloadStatus
+                : 'Downloading... ${(_downloadProgress * 100).toInt()}%'
+            : 'Download & Encrypt',
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _buildDownloadProgress() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12.0),
+      child: Column(
+        children: [
+          LinearProgressIndicator(
+            value: _downloadProgress,
+            backgroundColor: Colors.grey[800],
+            valueColor: const AlwaysStoppedAnimation<Color>(
+              Color(0xFFE50914),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  _downloadStatus,
+                  style: const TextStyle(
+                    color: Color(0xFFB3B3B3),
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '${(_downloadProgress * 100).toInt()}%',
+                style: const TextStyle(
+                  color: Color(0xFFB3B3B3),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDescription() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -822,7 +903,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          widget.video.description ?? '',
+          widget.video.description!,
           style: const TextStyle(
             color: Color(0xFFB3B3B3),
             fontSize: 16,
@@ -848,27 +929,76 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         const SizedBox(height: 16),
         _buildSpecRow('Genre', widget.video.genre),
         _buildSpecRow('Year', '${widget.video.year}'),
-        _buildSpecRow('Duration', '${widget.video.duration} minutes'),
+        _buildSpecRow('Duration', widget.video.displayDuration),
         _buildSpecRow('Video ID', '#${widget.video.id}'),
-        _buildSpecRow('Thumbnail URL', widget.video.thumbnailUrl.contains('backblazeb2.com') ? 'B2 Cloud Storage' : 'Local Storage'),
-        _buildSpecRow('Video URL', widget.video.videoUrl.contains('backblazeb2.com') ? 'B2 Cloud Storage' : 'Local Storage'),
+        _buildSpecRow(
+          'Storage Type', 
+          widget.video.isB2Video ? 'B2 Cloud Storage' : 'Direct URL'
+        ),
+        _buildSpecRow(
+          'Stream URL', 
+          widget.video.streamUrl != null ? 'Available' : 'Not Available'
+        ),
         if (_isDownloaded) ...[
-          _buildSpecRow('Status', 'Downloaded & Encrypted'),
-          _buildSpecRow('Storage', 'Secure Local Storage'),
+          _buildSpecRow('Download Status', 'Downloaded & Encrypted'),
+          _buildSpecRow('Local Storage', 'Secure Encrypted'),
+        ] else if (_isDownloading) ...[
+          _buildSpecRow('Download Status', 'Downloading...'),
+          _buildSpecRow('Progress', '${(_downloadProgress * 100).toInt()}%'),
         ] else
-          _buildSpecRow('Status', 'Online Only'),
+          _buildSpecRow('Download Status', 'Online Only'),
+        
+        // Debug info for development
+        if (widget.userRole == 'admin') ...[
+          const SizedBox(height: 8),
+          const Divider(color: Color(0xFF333333)),
+          const SizedBox(height: 8),
+          const Text(
+            'Debug Info (Admin Only)',
+            style: TextStyle(
+              color: Colors.orange,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildSpecRow('Original Video URL', widget.video.originalVideoUrl ?? 'N/A'),
+          _buildSpecRow('Original Thumbnail URL', widget.video.originalThumbnailUrl ?? 'N/A'),
+          _buildSpecRow('Stream URL', widget.video.streamUrl ?? 'N/A'),
+          _buildSpecRow('Is B2 Video', widget.video.isB2Video.toString()),
+          _buildSpecRow('Is B2 Thumbnail', widget.video.isB2Thumbnail.toString()),
+          _buildSpecRow('Created At', widget.video.createdAt?.toString() ?? 'N/A'),
+          _buildSpecRow('Updated At', widget.video.updatedAt?.toString() ?? 'N/A'),
+        ],
       ],
     );
   }
 
   Widget _buildSpecRow(String label, String value) {
+    // Determine color based on content
+    Color valueColor = Colors.white;
+    FontWeight fontWeight = FontWeight.normal;
+    
+    if (value.contains('Downloaded') || value.contains('Encrypted') || value.contains('Available')) {
+      valueColor = Colors.green;
+      fontWeight = FontWeight.bold;
+    } else if (value.contains('B2 Cloud') || value.contains('true')) {
+      valueColor = Colors.orange;
+      fontWeight = FontWeight.bold;
+    } else if (value.contains('Downloading') || value.contains('%')) {
+      valueColor = Colors.blue;
+      fontWeight = FontWeight.bold;
+    } else if (value.contains('N/A') || value.contains('Not Available') || value.contains('false')) {
+      valueColor = const Color(0xFF666666);
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 140,
             child: Text(
               '$label:',
               style: const TextStyle(color: Color(0xFFB3B3B3), fontSize: 14),
@@ -878,18 +1008,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             child: Text(
               value,
               style: TextStyle(
-                color: value.contains('Downloaded') || 
-                       value.contains('Secure') ||
-                       value.contains('B2 Cloud')
-                    ? Colors.green 
-                    : Colors.white,
+                color: valueColor,
                 fontSize: 14,
-                fontWeight: value.contains('Downloaded') || 
-                           value.contains('Secure') ||
-                           value.contains('B2 Cloud')
-                    ? FontWeight.bold
-                    : FontWeight.normal,
+                fontWeight: fontWeight,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
             ),
           ),
         ],

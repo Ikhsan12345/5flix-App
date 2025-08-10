@@ -23,10 +23,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool isOffline = false;
   String? userRole;
   String? username;
-  String? debugMessage; // Debug message untuk troubleshooting
+  String? debugMessage;
   final TextEditingController _searchController = TextEditingController();
   List<VideoModel> filteredVideos = [];
   late TabController _tabController;
+  bool _showDebugInfo = false; // Toggle for debug information
 
   @override
   void initState() {
@@ -38,9 +39,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       userRole = args?['role'] ?? 'user';
       username = args?['username'] ?? '';
 
-      // Debug: Print user info
       debugPrint('HomeScreen - User Role: $userRole, Username: $username');
-
       _loadData();
     });
   }
@@ -55,90 +54,104 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _loadData() async {
     setState(() {
       isLoading = true;
-      debugMessage = 'Loading data...';
+      debugMessage = 'Initializing...';
     });
 
     try {
-      debugPrint('Checking network connection...');
-
-      // Check network connectivity
+      debugPrint('=== Starting Data Load Process ===');
+      
+      // Check network connectivity with improved error handling
       final hasConnection = await ApiService.checkConnection();
-      debugPrint('Network connection: $hasConnection');
+      debugPrint('Network connectivity status: $hasConnection');
 
       setState(() {
         isOffline = !hasConnection;
         debugMessage = hasConnection
-            ? 'Connected - Loading from API'
-            : 'Offline - Loading cached data';
+            ? 'Connected - Loading from server'
+            : 'Offline - Loading cached content';
       });
 
       if (hasConnection) {
-        // Online mode - load from API
         await _loadOnlineData();
       } else {
-        // Offline mode - load from cache
         await _loadOfflineData();
       }
-    } catch (e) {
-      debugPrint('Error in _loadData: $e');
+    } catch (e, stackTrace) {
+      debugPrint('Critical error in _loadData: $e');
+      debugPrint('Stack trace: $stackTrace');
+      
       setState(() {
         isOffline = true;
-        debugMessage = 'Error occurred: $e';
+        debugMessage = 'Connection failed - using offline mode';
       });
+      
+      // Always try offline data as fallback
       await _loadOfflineData();
     }
 
-    // Always load downloaded videos
+    // Load downloaded videos regardless of online status
     await _loadDownloadedVideos();
 
-    setState(() => isLoading = false);
+    setState(() {
+      isLoading = false;
+      debugMessage = isOffline 
+          ? 'Offline: ${videos.length} cached videos'
+          : 'Online: ${videos.length} videos loaded';
+    });
+
+    debugPrint('=== Data Load Process Complete ===');
   }
 
   Future<void> _loadOnlineData() async {
     try {
       debugPrint('Loading videos from API...');
+      setState(() => debugMessage = 'Fetching videos from server...');
 
       final loadedVideos = await ApiService.getVideos();
-      debugPrint('API returned ${loadedVideos.length} videos');
+      debugPrint('Successfully loaded ${loadedVideos.length} videos from API');
 
-      // Debug: Print first video if exists
       if (loadedVideos.isNotEmpty) {
-        debugPrint('First video: ${loadedVideos[0].title}');
+        final featured = loadedVideos.where((v) => v.isFeatured).toList();
+        debugPrint('Found ${featured.length} featured videos');
+
+        // Cache videos for offline access
+        try {
+          await UserDbHelper.cacheVideoMetadata(loadedVideos);
+          debugPrint('Videos successfully cached for offline access');
+        } catch (cacheError) {
+          debugPrint('Warning: Failed to cache videos - $cacheError');
+          // Don't fail the entire operation for cache errors
+        }
+
+        setState(() {
+          videos = loadedVideos;
+          featuredVideos = featured;
+          filteredVideos = loadedVideos;
+          debugMessage = 'Server: ${loadedVideos.length} videos (${featured.length} featured)';
+        });
+      } else {
+        debugPrint('No videos received from API, falling back to cache');
+        setState(() => debugMessage = 'No server data - checking cache...');
+        await _loadOfflineData();
       }
-
-      final featured = loadedVideos.where((v) => v.isFeatured).toList();
-      debugPrint('Featured videos: ${featured.length}');
-
-      // Cache videos untuk offline
-      try {
-        await UserDbHelper.cacheVideoMetadata(loadedVideos);
-        debugPrint('Videos cached successfully');
-      } catch (cacheError) {
-        debugPrint('Cache error: $cacheError');
-      }
-
-      setState(() {
-        videos = loadedVideos;
-        featuredVideos = featured;
-        filteredVideos = loadedVideos;
-        debugMessage = 'Loaded ${loadedVideos.length} videos from API';
-      });
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('Error in _loadOnlineData: $e');
-      setState(() {
-        debugMessage = 'API Error: $e';
-      });
-      // Fallback to offline data
+      debugPrint('Stack trace: $stackTrace');
+      
+      setState(() => debugMessage = 'Server error - loading cache...');
+      
+      // Always fallback to offline data on any error
       await _loadOfflineData();
     }
   }
 
   Future<void> _loadOfflineData() async {
     try {
-      debugPrint('Loading videos from cache...');
+      debugPrint('Loading videos from local cache...');
+      setState(() => debugMessage = 'Loading cached videos...');
 
       final cachedVideos = await UserDbHelper.getCachedVideos();
-      debugPrint('Cache returned ${cachedVideos.length} videos');
+      debugPrint('Loaded ${cachedVideos.length} videos from cache');
 
       final featured = cachedVideos.where((v) => v.isFeatured).toList();
 
@@ -146,15 +159,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         videos = cachedVideos;
         featuredVideos = featured;
         filteredVideos = cachedVideos;
-        debugMessage = 'Loaded ${cachedVideos.length} videos from cache';
+        debugMessage = 'Cache: ${cachedVideos.length} videos (${featured.length} featured)';
       });
+
+      if (cachedVideos.isEmpty) {
+        setState(() => debugMessage = 'No cached content available');
+      }
     } catch (e) {
-      debugPrint('Error in _loadOfflineData: $e');
+      debugPrint('Error loading cached videos: $e');
       setState(() {
         videos = [];
         featuredVideos = [];
         filteredVideos = [];
-        debugMessage = 'Cache Error: $e';
+        debugMessage = 'Cache error: No videos available';
       });
     }
   }
@@ -162,15 +179,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _loadDownloadedVideos() async {
     try {
       final downloaded = await DownloadService.getDownloadedVideos();
-      debugPrint('Downloaded videos: ${downloaded.length}');
-      setState(() {
-        downloadedVideos = downloaded;
-      });
+      debugPrint('Loaded ${downloaded.length} downloaded videos');
+      setState(() => downloadedVideos = downloaded);
     } catch (e) {
       debugPrint('Error loading downloaded videos: $e');
-      setState(() {
-        downloadedVideos = [];
-      });
+      setState(() => downloadedVideos = []);
     }
   }
 
@@ -180,11 +193,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         filteredVideos = videos;
       } else {
         filteredVideos = videos
-            .where(
-              (video) =>
-                  video.title.toLowerCase().contains(query.toLowerCase()) ||
-                  video.genre.toLowerCase().contains(query.toLowerCase()),
-            )
+            .where((video) =>
+                video.title.toLowerCase().contains(query.toLowerCase()) ||
+                video.genre.toLowerCase().contains(query.toLowerCase()))
             .toList();
       }
     });
@@ -192,14 +203,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _logout() async {
     try {
+      debugPrint('Initiating logout process...');
+      
       if (!isOffline) {
         await ApiService.logout();
+        debugPrint('Server logout completed');
+      } else {
+        debugPrint('Offline logout - clearing local session only');
       }
+      
       await SessionService.clearSession();
+      debugPrint('Local session cleared');
+      
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/');
       }
     } catch (e) {
+      debugPrint('Logout error: $e');
+      // Force logout even if server call fails
+      await SessionService.clearSession();
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/');
       }
@@ -207,108 +229,161 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _refreshData() async {
+    debugPrint('Manual refresh triggered');
     await _loadData();
   }
 
-  // Debug method untuk test API connection
-  Future<void> _testApiConnection() async {
+  Future<void> _performApiTest() async {
+    setState(() => debugMessage = 'Testing API connection...');
+    
     try {
-      debugPrint('Testing API connection...');
-
-      // Test basic connection
+      debugPrint('=== Starting comprehensive API test ===');
+      
+      // Test 1: Basic connectivity
       final hasConnection = await ApiService.checkConnection();
-      debugPrint('Basic connection test: $hasConnection');
+      debugPrint('✓ Basic connectivity: $hasConnection');
 
       if (hasConnection) {
-        // Debug raw response first
+        // Test 2: Get current token info
+        final currentToken = ApiService.getCurrentToken();
+        debugPrint('✓ Auth token status: ${currentToken != null ? 'Available' : 'Missing'}');
+
+        // Test 3: Debug raw response
         await ApiService.debugRawResponse();
-
-        // Test getVideos
+        
+        // Test 4: Actual API call
         final videos = await ApiService.getVideos();
-        debugPrint('getVideos returned: ${videos.length} videos');
+        debugPrint('✓ Videos fetched: ${videos.length}');
 
-        // Show result in dialog
+        // Show comprehensive results
         if (mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              backgroundColor: const Color(0xFF181818),
-              title: const Text(
-                'API Test Result',
-                style: TextStyle(color: Colors.white),
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Connection: $hasConnection\nVideos loaded: ${videos.length}',
-                      style: const TextStyle(color: Color(0xFFB3B3B3)),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Check console for detailed debug info',
-                      style: TextStyle(color: Colors.orange, fontSize: 12),
-                    ),
-                    if (videos.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Sample video:',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      Text(
-                        '${videos[0].title} (${videos[0].year})',
-                        style: const TextStyle(
-                          color: Color(0xFFB3B3B3),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'OK',
-                    style: TextStyle(color: Color(0xFFE50914)),
-                  ),
-                ),
-              ],
-            ),
-          );
+          _showApiTestResults(hasConnection, videos.length, currentToken != null);
+        }
+      } else {
+        if (mounted) {
+          _showApiTestResults(false, 0, false);
         }
       }
     } catch (e) {
       debugPrint('API test error: $e');
       if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: const Color(0xFF181818),
-            title: const Text(
-              'API Test Error',
+        _showErrorDialog('API Test Failed', 'Error: $e\n\nCheck console for detailed logs.');
+      }
+    }
+  }
+
+  void _showApiTestResults(bool connected, int videoCount, bool hasToken) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: Row(
+          children: [
+            Icon(
+              connected ? Icons.check_circle : Icons.error,
+              color: connected ? Colors.green : Colors.red,
+              size: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'API Test Results',
               style: TextStyle(color: Colors.white),
             ),
-            content: Text(
-              'Error: $e\nCheck console for details',
-              style: const TextStyle(color: Colors.red),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildTestResultRow('Connection', connected ? 'Success' : 'Failed', connected),
+              _buildTestResultRow('Auth Token', hasToken ? 'Available' : 'Missing', hasToken),
+              _buildTestResultRow('Videos Loaded', '$videoCount', videoCount > 0),
+              _buildTestResultRow('Debug Mode', _showDebugInfo ? 'Enabled' : 'Disabled', true),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
                 child: const Text(
-                  'OK',
-                  style: TextStyle(color: Color(0xFFE50914)),
+                  '💡 Check console output for detailed technical information',
+                  style: TextStyle(color: Colors.blue, fontSize: 12),
                 ),
               ),
             ],
           ),
-        );
-      }
-    }
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() => _showDebugInfo = !_showDebugInfo);
+              Navigator.pop(context);
+            },
+            child: Text(
+              _showDebugInfo ? 'Hide Debug' : 'Show Debug',
+              style: const TextStyle(color: Color(0xFFB3B3B3)),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'OK',
+              style: TextStyle(color: Color(0xFFE50914)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTestResultRow(String label, String value, bool isSuccess) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            isSuccess ? Icons.check : Icons.close,
+            color: isSuccess ? Colors.green : Colors.red,
+            size: 16,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                color: isSuccess ? Colors.green : Colors.red,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showErrorDialog(String title, String content) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+        content: Text(content, style: const TextStyle(color: Colors.red)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Color(0xFFE50914))),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -320,7 +395,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           children: [
             _buildAppBar(),
             if (isOffline) _buildOfflineBanner(),
-            if (debugMessage != null) _buildDebugBanner(), // Debug banner
+            if (_showDebugInfo && debugMessage != null) _buildDebugBanner(),
             _buildTabBar(),
             Expanded(
               child: isLoading
@@ -344,25 +419,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Debug banner untuk troubleshooting
   Widget _buildDebugBanner() {
     return Container(
       width: double.infinity,
       color: Colors.blue.shade800,
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
       child: Row(
         children: [
-          const Icon(Icons.bug_report, color: Colors.white, size: 14),
+          const Icon(Icons.developer_mode, color: Colors.white, size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              debugMessage ?? '',
-              style: const TextStyle(color: Colors.white, fontSize: 11),
+              'DEBUG: ${debugMessage ?? 'No debug info'}',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           TextButton(
-            onPressed: _testApiConnection,
+            onPressed: _performApiTest,
             style: TextButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               minimumSize: const Size(0, 0),
@@ -434,8 +508,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 case 'clear_cache':
                   _showClearCacheDialog();
                   break;
+                case 'debug_toggle':
+                  setState(() => _showDebugInfo = !_showDebugInfo);
+                  break;
                 case 'test_api':
-                  _testApiConnection();
+                  _performApiTest();
                   break;
                 case 'logout':
                   _logout();
@@ -467,6 +544,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     Icon(Icons.download, color: Colors.white70, size: 18),
                     SizedBox(width: 12),
                     Text('Downloads', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'debug_toggle',
+                child: Row(
+                  children: [
+                    Icon(
+                      _showDebugInfo ? Icons.bug_report : Icons.bug_report_outlined,
+                      color: _showDebugInfo ? Colors.orange : Colors.white70,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      _showDebugInfo ? 'Hide Debug' : 'Show Debug',
+                      style: TextStyle(
+                        color: _showDebugInfo ? Colors.orange : Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -806,9 +902,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   child: Stack(
                     children: [
                       Image.network(
-                        video.thumbnailUrl,
+                        video.displayThumbnailUrl,
                         fit: BoxFit.cover,
                         width: double.infinity,
+                        headers: !isOffline ? {
+                          'Authorization': 'Bearer ${ApiService.getCurrentToken() ?? ''}',
+                        } : null,
                         loadingBuilder: (context, child, loadingProgress) {
                           if (loadingProgress == null) return child;
                           return Container(
@@ -910,10 +1009,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 child: Stack(
                   children: [
                     Image.network(
-                      video.thumbnailUrl,
+                      video.displayThumbnailUrl,
                       width: double.infinity,
                       height: double.infinity,
                       fit: BoxFit.cover,
+                      headers: !isOffline ? {
+                        'Authorization': 'Bearer ${ApiService.getCurrentToken() ?? ''}',
+                      } : null,
                       loadingBuilder: (context, child, loadingProgress) {
                         if (loadingProgress == null) return child;
                         return Container(
@@ -1008,7 +1110,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      '${video.duration} min',
+                      video.displayDuration,
                       style: const TextStyle(
                         color: Color(0xFFB3B3B3),
                         fontSize: 10,
@@ -1055,14 +1157,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              await UserDbHelper.clearOldCache();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Cache cleared successfully'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              _refreshData();
+              try {
+                await UserDbHelper.clearOldCache();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Cache cleared successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+                await _refreshData();
+              } catch (e) {
+                debugPrint('Error clearing cache: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error clearing cache: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             child: const Text(
               'Clear',
