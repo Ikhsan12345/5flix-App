@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:five_flix/database/user_db_helper.dart';
+import 'package:five_flix/services/api_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,36 +15,37 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscureText = true;
   bool _isLoading = false;
 
-  Future<void> _onLogin() async {
-    if (_formKey.currentState?.validate() ?? false) {
-      setState(() => _isLoading = true);
+Future<void> _onLogin() async {
+  if (_formKey.currentState?.validate() ?? false) {
+    setState(() => _isLoading = true);
 
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (!mounted) return;
-      // Hardcode admin
-      if (username == 'admin' && password == 'admin5flix') {
-        setState(() => _isLoading = false);
-        Navigator.pushReplacementNamed(context, '/home', arguments: {'role': 'admin'});
-        return;
-      }
-
-      // Cek user SQLite
-      final user = await UserDbHelper.getUser(username, password);
-      setState(() => _isLoading = false);
-      if (!mounted) return;
-      if (user != null) {
-        Navigator.pushReplacementNamed(context, '/home', arguments: {'role': 'user', 'username': username});
+    try {
+      // Hapus hardcode admin check, gunakan API
+      final result = await ApiService.login(username, password);
+      
+      if (result['success'] == true) {
+        final userRole = result['user']['role'];
+        final userToken = result['token'];
+        
+        // Simpan token untuk request selanjutnya
+        await _saveUserSession(userToken, userRole, username);
+        
+        Navigator.pushReplacementNamed(context, '/home', 
+          arguments: {
+            'role': userRole, 
+            'username': username,
+            'token': userToken
+          });
       } else {
-        showDialog(
-          context: context,
-          builder: (context) => const AlertDialog(
-            title: Text('Login Gagal'),
-            content: Text('Username atau password salah!'),
-          ),
-        );
+        _showErrorDialog(result['message']);
       }
+    } catch (e) {
+      _showErrorDialog('Network error: $e');
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {

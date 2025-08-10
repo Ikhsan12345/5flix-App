@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:five_flix/models/video_model.dart';
+import 'package:five_flix/models/category_model.dart';
 import 'package:five_flix/services/api_service.dart';
 import 'package:five_flix/screens/VideoDetailScreen.dart';
 import 'package:five_flix/screens/AdminPanelScreen.dart';
@@ -422,4 +423,30 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
+
+Widget _buildCategoryFilter() {
+  return Container(
+    height: 50,
+    child: ListView.builder(
+      scrollDirection: Axis.horizontal,
+      padding: EdgeInsets.symmetric(horizontal: 16),
+      itemCount: categories.length,
+      itemBuilder: (context, index) {
+        return Padding(
+          padding: EdgeInsets.only(right: 12),
+          child: FilterChip(
+            selected: selectedCategory == categories[index].id,
+            label: Text(categories[index].name),
+            onSelected: (selected) {
+              setState(() {
+                selectedCategory = selected ? categories[index].id : null;
+              });
+              _filterByCategory();
+            },
+          ),
+        );
+      },
+    ),
+  );
 }
