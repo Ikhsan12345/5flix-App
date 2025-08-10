@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:five_flix/models/video_model.dart';
-import 'package:five_flix/services/api_service.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:five_flix/services/download_service.dart';
+import 'package:five_flix/screens/VideoPlayerScreen.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   final VideoModel video;
@@ -18,9 +18,169 @@ class VideoDetailScreen extends StatefulWidget {
 }
 
 class _VideoDetailScreenState extends State<VideoDetailScreen> {
-  bool isLoading = false;
-  bool isDownloading = false;
-  double downloadProgress = 0.0;
+  bool _isDownloaded = false;
+  bool _isDownloading = false;
+  double _downloadProgress = 0.0;
+  String _downloadStatus = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _checkDownloadStatus();
+  }
+
+  Future<void> _checkDownloadStatus() async {
+    final isDownloaded = await DownloadService.isVideoDownloaded(widget.video.id);
+    setState(() {
+      _isDownloaded = isDownloaded;
+    });
+  }
+
+  Future<void> _downloadVideo() async {
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0.0;
+      _downloadStatus = 'Starting download...';
+    });
+
+    final success = await DownloadService.downloadVideoWithProgress(
+      widget.video,
+      onProgress: (progress) {
+        setState(() {
+          _downloadProgress = progress;
+        });
+      },
+      onStatusChange: (status) {
+        setState(() {
+          _downloadStatus = status;
+        });
+      },
+    );
+
+    setState(() {
+      _isDownloading = false;
+      _isDownloaded = success;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'Video downloaded successfully' : 'Download failed'),
+          backgroundColor: success ? Colors.green : const Color(0xFFE50914),
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteDownload() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: const Text('Delete Download', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Are you sure you want to delete this downloaded video?',
+          style: TextStyle(color: Color(0xFFB3B3B3)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFFB3B3B3))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await DownloadService.deleteDownload(widget.video.id);
+      setState(() {
+        _isDownloaded = !success;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success ? 'Download deleted' : 'Failed to delete download'),
+            backgroundColor: success ? Colors.green : const Color(0xFFE50914),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _playOfflineVideo() async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          backgroundColor: Color(0xFF181818),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Color(0xFFE50914)),
+              SizedBox(height: 16),
+              Text(
+                'Preparing video...',
+                style: TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Decrypt video file
+      final decryptedFile = await DownloadService.getDecryptedVideoFile(widget.video.id);
+      
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      if (decryptedFile != null) {
+                Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VideoPlayerScreen(
+              video: widget.video.copyWith(videoUrl: decryptedFile.path),
+              isOffline: true,
+            ),
+          ),
+        );
+      } else {
+        throw Exception('Failed to decrypt video file');
+      }
+    } catch (e) {
+      // Close loading dialog if still open
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error playing video: $e'),
+            backgroundColor: const Color(0xFFE50914),
+          ),
+        );
+      }
+    }
+  }
+
+  void _playOnlineVideo() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VideoPlayerScreen(
+          video: widget.video,
+          isOffline: false,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +216,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       expandedHeight: 300,
       pinned: true,
       backgroundColor: const Color(0xFF141414),
+      iconTheme: const IconThemeData(color: Colors.white),
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           fit: StackFit.expand,
@@ -91,7 +252,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   shape: BoxShape.circle,
                 ),
                 child: IconButton(
-                  onPressed: _playVideo,
+                  onPressed: _isDownloaded ? _playOfflineVideo : _playOnlineVideo,
                   icon: const Icon(
                     Icons.play_arrow,
                     color: Colors.white,
@@ -121,6 +282,37 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
+                  ),
+                ),
+              ),
+            // Offline indicator
+            if (_isDownloaded)
+              Positioned(
+                top: 60,
+                left: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.offline_pin, color: Colors.white, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'DOWNLOADED',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -179,7 +371,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: isLoading ? null : _playVideo,
+            onPressed: _isDownloaded ? _playOfflineVideo : _playOnlineVideo,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
               foregroundColor: Colors.black,
@@ -188,63 +380,130 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            icon: isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
-                    ),
-                  )
-                : const Icon(Icons.play_arrow, size: 28),
+            icon: Icon(
+              _isDownloaded ? Icons.offline_pin : Icons.play_arrow,
+              size: 28,
+            ),
             label: Text(
-              isLoading ? 'Loading...' : 'Play',
+              _isDownloaded ? 'Play Offline' : 'Play Online',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
         ),
         const SizedBox(height: 12),
-        // Download button
+        // Download/Delete button
         SizedBox(
           width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: isDownloading ? null : _downloadVideo,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: const BorderSide(color: Colors.white),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            icon: isDownloading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          child: _isDownloaded
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _deleteDownload,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: const BorderSide(color: Colors.red),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        icon: const Icon(Icons.delete, size: 24),
+                        label: const Text(
+                          'Delete Download',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ),
                     ),
-                  )
-                : const Icon(Icons.download, size: 24),
-            label: Text(
-              isDownloading
-                  ? 'Downloading... ${(downloadProgress * 100).toInt()}%'
-                  : 'Download',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.2),
+                        border: Border.all(color: Colors.green),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.security, color: Colors.green, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Encrypted',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : OutlinedButton.icon(
+                  onPressed: _isDownloading ? null : _downloadVideo,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  icon: _isDownloading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Icon(Icons.download, size: 24),
+                  label: Text(
+                    _isDownloading
+                        ? _downloadStatus.isNotEmpty 
+                            ? _downloadStatus
+                            : 'Downloading... ${(_downloadProgress * 100).toInt()}%'
+                        : 'Download & Encrypt',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
         ),
-        if (isDownloading && downloadProgress > 0)
+        if (_isDownloading && _downloadProgress > 0)
           Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: LinearProgressIndicator(
-              value: downloadProgress,
-              backgroundColor: Colors.grey[800],
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFFE50914),
-              ),
+            padding: const EdgeInsets.only(top: 12.0),
+            child: Column(
+              children: [
+                LinearProgressIndicator(
+                  value: _downloadProgress,
+                  backgroundColor: Colors.grey[800],
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    Color(0xFFE50914),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _downloadStatus,
+                      style: const TextStyle(
+                        color: Color(0xFFB3B3B3),
+                        fontSize: 12,
+                      ),
+                    ),
+                    Text(
+                      '${(_downloadProgress * 100).toInt()}%',
+                      style: const TextStyle(
+                        color: Color(0xFFB3B3B3),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
       ],
@@ -252,7 +511,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   Widget _buildDescription() {
-    if (widget.video.description == null || widget.video.description!.isEmpty) {
+    final desc = widget.video.description ?? '';
+    if (desc.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -269,7 +529,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          widget.video.description!,
+          widget.video.description ?? '',
           style: const TextStyle(
             color: Color(0xFFB3B3B3),
             fontSize: 16,
@@ -297,6 +557,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         _buildSpecRow('Year', '${widget.video.year}'),
         _buildSpecRow('Duration', '${widget.video.duration} minutes'),
         _buildSpecRow('Video ID', '#${widget.video.id}'),
+        if (_isDownloaded) ...[
+          _buildSpecRow('Status', 'Downloaded & Encrypted'),
+          _buildSpecRow('Storage', 'Secure Local Storage'),
+        ] else
+          _buildSpecRow('Status', 'Online Only'),
       ],
     );
   }
@@ -317,103 +582,19 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+              style: TextStyle(
+                color: value.contains('Downloaded') || value.contains('Secure') 
+                    ? Colors.green 
+                    : Colors.white,
+                fontSize: 14,
+                fontWeight: value.contains('Downloaded') || value.contains('Secure')
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+              ),
             ),
           ),
         ],
       ),
     );
-  }
-
-  void _playVideo() async {
-    setState(() => isLoading = true);
-
-    try {
-      // Launch video in external player or browser
-      final uri = Uri.parse(widget.video.videoUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Cannot play video'),
-              backgroundColor: Color(0xFFE50914),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error playing video: $e'),
-            backgroundColor: const Color(0xFFE50914),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
-    }
-  }
-
-  void _downloadVideo() async {
-    setState(() {
-      isDownloading = true;
-      downloadProgress = 0.0;
-    });
-
-    try {
-      final result = await ApiService.getDownloadUrl(widget.video.id);
-
-      if (result['success'] == true) {
-        // Simulate download progress
-        for (int i = 0; i <= 100; i += 10) {
-          await Future.delayed(const Duration(milliseconds: 200));
-          if (mounted) {
-            setState(() {
-              downloadProgress = i / 100.0;
-            });
-          }
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Download completed! Video saved to downloads.'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result['message'] ?? 'Download failed'),
-              backgroundColor: const Color(0xFFE50914),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Download error: $e'),
-            backgroundColor: const Color(0xFFE50914),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          isDownloading = false;
-          downloadProgress = 0.0;
-        });
-      }
-    }
   }
 }

@@ -35,3 +35,29 @@ class VideoModel {
     );
   }
 }
+
+extension VideoModelExtension on VideoModel {
+  VideoModel copyWith({
+    int? id,
+    String? title,
+    String? genre,
+    String? description,
+    int? duration,
+    int? year,
+    bool? isFeatured,
+    String? thumbnailUrl,
+    String? videoUrl,
+  }) {
+    return VideoModel(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      genre: genre ?? this.genre,
+      description: description ?? this.description,
+      duration: duration ?? this.duration,
+      year: year ?? this.year,
+      isFeatured: isFeatured ?? this.isFeatured,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      videoUrl: videoUrl ?? this.videoUrl,
+    );
+  }
+}
