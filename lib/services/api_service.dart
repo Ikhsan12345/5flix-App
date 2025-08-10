@@ -19,11 +19,18 @@ class ApiService {
     return _authToken;
   }
   
+  // Clear auth token
+  static void clearAuthToken() {
+    _authToken = null;
+    debugPrint('ApiService: Auth token cleared');
+  }
+  
   // Get auth headers
   static Map<String, String> get _headers {
     Map<String, String> headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'User-Agent': 'FiveFlix-Mobile-App/1.0',
     };
     
     if (_authToken != null) {
@@ -37,7 +44,7 @@ class ApiService {
   }
 
   // Login
-    static Future<Map<String, dynamic>> login(String username, String password) async {
+  static Future<Map<String, dynamic>> login(String username, String password) async {
     try {
       debugPrint('ApiService: Attempting login for user: $username');
       
@@ -52,7 +59,7 @@ class ApiService {
           'username': username,
           'password': password,
         }),
-      );
+      ).timeout(const Duration(seconds: 30));
 
       debugPrint('ApiService: Login response status: ${response.statusCode}');
 
@@ -72,6 +79,7 @@ class ApiService {
         };
       }
     } catch (e) {
+      debugPrint('ApiService: Login error - $e');
       return {
         'success': false,
         'message': 'Koneksi bermasalah: $e',
@@ -89,12 +97,13 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'User-Agent': 'FiveFlix-Mobile-App/1.0',
         },
         body: jsonEncode({
           'username': username,
           'password': password,
         }),
-      );
+      ).timeout(const Duration(seconds: 30));
 
       debugPrint('ApiService: Registration response status: ${response.statusCode}');
       final data = jsonDecode(response.body);
@@ -129,14 +138,13 @@ class ApiService {
         await http.post(
           Uri.parse('$baseUrl/logout'),
           headers: _headers,
-        );
+        ).timeout(const Duration(seconds: 15));
         debugPrint('ApiService: Logout request sent');
       }
     } catch (e) {
       debugPrint('ApiService: Logout error - $e');
     } finally {
-      _authToken = null;
-      debugPrint('ApiService: Auth token cleared');
+      clearAuthToken();
     }
   }
 
@@ -150,14 +158,14 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/videos'),
         headers: _headers,
-      ).timeout(const Duration(seconds: 30)); // Add timeout
+      ).timeout(const Duration(seconds: 30));
 
       debugPrint('ApiService: Videos response status: ${response.statusCode}');
       debugPrint('ApiService: Videos response length: ${response.body.length}');
 
       if (response.statusCode == 401) {
         debugPrint('ApiService: Unauthorized - token might be invalid');
-        _authToken = null; // Clear invalid token
+        clearAuthToken();
         return [];
       }
 
@@ -174,7 +182,7 @@ class ApiService {
           for (int i = 0; i < videoList.length; i++) {
             try {
               final videoJson = videoList[i];
-              debugPrint('ApiService: Processing video $i: ${videoJson['title']} (featured: ${videoJson['is_featured']}, type: ${videoJson['is_featured'].runtimeType})');
+              debugPrint('ApiService: Processing video $i: ${videoJson['title']}');
               
               final video = VideoModel.fromJson(videoJson);
               videos.add(video);
@@ -230,6 +238,53 @@ class ApiService {
     }
   }
 
+  // Get video stream URL (for secure streaming)
+  static Future<String?> getVideoStreamUrl(int videoId) async {
+    try {
+      debugPrint('ApiService: Getting stream URL for video ID: $videoId');
+      
+      final response = await http.get(
+        Uri.parse('$baseUrl/videos/$videoId/stream'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 15));
+
+      debugPrint('ApiService: Stream URL response status: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        // This should return the video file directly or redirect to the file
+        return '$baseUrl/videos/$videoId/stream';
+      }
+      
+      return null;
+    } catch (e) {
+      debugPrint('ApiService: Error getting stream URL: $e');
+      return null;
+    }
+  }
+
+  // Get video thumbnail URL (for secure thumbnails)
+  static Future<String?> getVideoThumbnailUrl(int videoId) async {
+    try {
+      debugPrint('ApiService: Getting thumbnail URL for video ID: $videoId');
+      
+      final response = await http.head(
+        Uri.parse('$baseUrl/videos/$videoId/thumbnail'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint('ApiService: Thumbnail URL response status: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        return '$baseUrl/videos/$videoId/thumbnail';
+      }
+      
+      return null;
+    } catch (e) {
+      debugPrint('ApiService: Error getting thumbnail URL: $e');
+      return null;
+    }
+  }
+
   // Upload video (Admin only)
   static Future<Map<String, dynamic>> uploadVideo({
     required String title,
@@ -253,6 +308,7 @@ class ApiService {
       if (_authToken != null) {
         request.headers['Authorization'] = 'Bearer $_authToken';
       }
+      request.headers['Accept'] = 'application/json';
 
       // Add fields
       request.fields['title'] = title;
@@ -272,7 +328,7 @@ class ApiService {
         videoFile.path,
       ));
 
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(const Duration(minutes: 10));
       final response = await http.Response.fromStream(streamedResponse);
       final data = jsonDecode(response.body);
 
@@ -308,14 +364,18 @@ class ApiService {
       debugPrint('ApiService: Updating video ID: $id');
       
       var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$baseUrl/videos/$id/update'),
+        'POST', // Backend uses POST with special handling for PUT
+        Uri.parse('$baseUrl/videos/$id'),
       );
+
+      // Add method override for PUT
+      request.fields['_method'] = 'PUT';
 
       // Add headers
       if (_authToken != null) {
         request.headers['Authorization'] = 'Bearer $_authToken';
       }
+      request.headers['Accept'] = 'application/json';
 
       // Add fields only if provided
       if (title != null) request.fields['title'] = title;
@@ -339,7 +399,7 @@ class ApiService {
         ));
       }
 
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(const Duration(minutes: 10));
       final response = await http.Response.fromStream(streamedResponse);
       final data = jsonDecode(response.body);
 
@@ -367,7 +427,7 @@ class ApiService {
       final response = await http.delete(
         Uri.parse('$baseUrl/videos/$id'),
         headers: _headers,
-      );
+      ).timeout(const Duration(seconds: 30));
 
       final data = jsonDecode(response.body);
       debugPrint('ApiService: Delete response status: ${response.statusCode}');
@@ -393,7 +453,7 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/videos/$id/download'),
         headers: _headers,
-      );
+      ).timeout(const Duration(seconds: 15));
 
       final data = jsonDecode(response.body);
       debugPrint('ApiService: Download URL response status: ${response.statusCode}');
@@ -411,7 +471,6 @@ class ApiService {
       };
     }
   }
-
 
   // Check connection with better error handling
   static Future<bool> checkConnection() async {
@@ -462,11 +521,10 @@ class ApiService {
           
           if (data['data'] != null && data['data'] is List) {
             final videoList = data['data'] as List;
-            for (int i = 0; i < videoList.length; i++) {
+            for (int i = 0; i < (videoList.length > 2 ? 2 : videoList.length); i++) {
               debugPrint('--- Video $i ---');
               final video = videoList[i];
               debugPrint('Video data: $video');
-              debugPrint('is_featured value: ${video['is_featured']} (type: ${video['is_featured'].runtimeType})');
               
               // Try to parse this video
               try {
@@ -490,75 +548,14 @@ class ApiService {
     }
   }
 
-  // Debug method to test API endpoints
-  static Future<Map<String, dynamic>> debugApiTest() async {
-    Map<String, dynamic> results = {};
-    
-    try {
-      // Test basic connectivity
-      debugPrint('ApiService: Testing basic connectivity...');
-      final connectTest = await checkConnection();
-      results['connectivity'] = connectTest;
-      
-      // Test videos endpoint
-      debugPrint('ApiService: Testing videos endpoint...');
-      final videos = await getVideos();
-      results['videos_count'] = videos.length;
-      results['videos_loaded'] = videos.isNotEmpty;
-      
-      // Test specific video if available
-      if (videos.isNotEmpty) {
-        final firstVideo = await getVideo(videos[0].id);
-        results['single_video_test'] = firstVideo != null;
-      }
-      
-      results['auth_token_available'] = _authToken != null;
-      results['base_url'] = baseUrl;
-      
-    } catch (e) {
-      results['error'] = e.toString();
-    }
-    
-    return results;
-  }
-
-  static Future<String?> getAuthorizedMediaUrl(int videoId, String type) async {
-    try {
-      debugPrint('ApiService: Getting authorized $type URL for video ID: $videoId');
-      
-      final endpoint = type == 'video' ? 'stream' : 'thumbnail';
-      final response = await http.get(
-        Uri.parse('$baseUrl/videos/$videoId/$endpoint-url'), // Endpoint baru yang simple
-        headers: _headers,
-      ).timeout(const Duration(seconds: 15));
-
-      debugPrint('ApiService: $type URL response status: ${response.statusCode}');
-      debugPrint('ApiService: $type URL response: ${response.body}');
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true && data['url'] != null) {
-          final authorizedUrl = data['url'];
-          debugPrint('ApiService: Got authorized $type URL: ${authorizedUrl.substring(0, 50)}...');
-          return authorizedUrl;
-        }
-      }
-      
-      debugPrint('ApiService: Failed to get authorized $type URL');
-      return null;
-    } catch (e) {
-      debugPrint('ApiService: Error getting authorized $type URL: $e');
-      return null;
-    }}
-    static Future<bool> testUrlAccess(String url, {Map<String, String>? headers}) async {
+  // Test URL access
+  static Future<bool> testUrlAccess(String url, {Map<String, String>? headers}) async {
     try {
       debugPrint('ApiService: Testing URL access: ${url.substring(0, 50)}...');
       
       final response = await http.head(
         Uri.parse(url),
-        headers: headers ?? {
-          'User-Agent': 'FiveFlix-Mobile-App/1.0',
-        },
+        headers: headers ?? _headers,
       ).timeout(const Duration(seconds: 10));
 
       debugPrint('ApiService: URL test response: ${response.statusCode}');
@@ -566,6 +563,50 @@ class ApiService {
     } catch (e) {
       debugPrint('ApiService: URL test error: $e');
       return false;
+    }
+  }
+
+  // Get authorized media URL (for streaming/thumbnail with auth)
+  static String getAuthorizedStreamUrl(int videoId) {
+    return '$baseUrl/videos/$videoId/stream';
+  }
+
+  static String getAuthorizedThumbnailUrl(int videoId) {
+    return '$baseUrl/videos/$videoId/thumbnail';
+  }
+
+  // Download file with progress (for downloads)
+  static Future<void> downloadFileWithProgress(
+    String url,
+    String savePath,
+    Function(int received, int total) onProgress,
+  ) async {
+    try {
+      final request = http.Request('GET', Uri.parse(url));
+      request.headers.addAll(_headers);
+      
+      final streamedResponse = await request.send();
+      
+      if (streamedResponse.statusCode == 200) {
+        final contentLength = streamedResponse.contentLength ?? 0;
+        final file = File(savePath);
+        final sink = file.openWrite();
+        
+        int received = 0;
+        
+        await for (var chunk in streamedResponse.stream) {
+          sink.add(chunk);
+          received += chunk.length;
+          onProgress(received, contentLength);
+        }
+        
+        await sink.close();
+      } else {
+        throw Exception('Failed to download: ${streamedResponse.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Download error: $e');
+      rethrow;
     }
   }
 }
