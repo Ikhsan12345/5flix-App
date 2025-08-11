@@ -4,6 +4,7 @@ import 'package:five_flix/services/api_service.dart';
 import 'package:five_flix/services/session_service.dart';
 import 'package:five_flix/services/download_service.dart';
 import 'package:five_flix/database/user_db_helper.dart';
+import 'package:five_flix/widgets/authorized_network_image.dart'; // Import the new widget
 import 'package:five_flix/screens/VideoDetailScreen.dart';
 import 'package:five_flix/screens/AdminPanelScreen.dart';
 import 'package:five_flix/screens/DownloadsScreen.dart';
@@ -107,8 +108,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       debugPrint('Loading videos from API...');
       setState(() => debugMessage = 'Fetching videos from server...');
 
+      // Add debugging for API connection
+      final isConnected = await ApiService.checkConnection();
+      debugPrint('API connection test: $isConnected');
+      
+      if (!isConnected) {
+        debugPrint('API connection failed, switching to offline mode');
+        setState(() {
+          isOffline = true;
+          debugMessage = 'Connection failed - switching to offline';
+        });
+        await _loadOfflineData();
+        return;
+      }
+
+      // Perform comprehensive debugging
+      if (_showDebugInfo) {
+        await ApiService.debugRawResponse();
+      }
+
       final loadedVideos = await ApiService.getVideos();
-      debugPrint('Successfully loaded ${loadedVideos.length} videos from API');
+      debugPrint('API Response: Successfully loaded ${loadedVideos.length} videos from API');
+      
+      // Log each video for debugging
+      for (int i = 0; i < loadedVideos.length && i < 3; i++) {
+        debugPrint('Video $i: ${loadedVideos[i].toDebugString()}');
+      }
 
       if (loadedVideos.isNotEmpty) {
         final featured = loadedVideos.where((v) => v.isFeatured).toList();
@@ -130,7 +155,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           debugMessage = 'Server: ${loadedVideos.length} videos (${featured.length} featured)';
         });
       } else {
-        debugPrint('No videos received from API, falling back to cache');
+        debugPrint('No videos received from API, checking authentication...');
+        
+        // Check if it's an authentication issue
+        final isAuth = await ApiService.isAuthenticated();
+        debugPrint('Authentication status: $isAuth');
+        
+        if (!isAuth) {
+          // Try to refresh session
+          final sessionRefreshed = await SessionService.refreshSession();
+          if (sessionRefreshed) {
+            debugPrint('Session refreshed, retrying API call...');
+            final retryVideos = await ApiService.getVideos();
+            if (retryVideos.isNotEmpty) {
+              final featured = retryVideos.where((v) => v.isFeatured).toList();
+              setState(() {
+                videos = retryVideos;
+                featuredVideos = featured;
+                filteredVideos = retryVideos;
+                debugMessage = 'Server (after auth refresh): ${retryVideos.length} videos';
+              });
+              return;
+            }
+          }
+        }
+        
         setState(() => debugMessage = 'No server data - checking cache...');
         await _loadOfflineData();
       }
@@ -138,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       debugPrint('Error in _loadOnlineData: $e');
       debugPrint('Stack trace: $stackTrace');
       
-      setState(() => debugMessage = 'Server error - loading cache...');
+      setState(() => debugMessage = 'Server error: $e - loading cache...');
       
       // Always fallback to offline data on any error
       await _loadOfflineData();
@@ -193,9 +242,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         filteredVideos = videos;
       } else {
         filteredVideos = videos
-            .where((video) =>
-                video.title.toLowerCase().contains(query.toLowerCase()) ||
-                video.genre.toLowerCase().contains(query.toLowerCase()))
+            .where((video) => video.matchesSearch(query))
             .toList();
       }
     });
@@ -255,13 +302,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final videos = await ApiService.getVideos();
         debugPrint('✓ Videos fetched: ${videos.length}');
 
+        // Test 5: Check authentication status
+        final isAuth = await ApiService.isAuthenticated();
+        debugPrint('✓ Authentication status: $isAuth');
+
         // Show comprehensive results
         if (mounted) {
-          _showApiTestResults(hasConnection, videos.length, currentToken != null);
+          _showApiTestResults(hasConnection, videos.length, currentToken != null, isAuth);
         }
       } else {
         if (mounted) {
-          _showApiTestResults(false, 0, false);
+          _showApiTestResults(false, 0, false, false);
         }
       }
     } catch (e) {
@@ -272,7 +323,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _showApiTestResults(bool connected, int videoCount, bool hasToken) {
+  void _showApiTestResults(bool connected, int videoCount, bool hasToken, bool isAuth) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -298,6 +349,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             children: [
               _buildTestResultRow('Connection', connected ? 'Success' : 'Failed', connected),
               _buildTestResultRow('Auth Token', hasToken ? 'Available' : 'Missing', hasToken),
+              _buildTestResultRow('Authenticated', isAuth ? 'Yes' : 'No', isAuth),
               _buildTestResultRow('Videos Loaded', '$videoCount', videoCount > 0),
               _buildTestResultRow('Debug Mode', _showDebugInfo ? 'Enabled' : 'Disabled', true),
               const SizedBox(height: 16),
@@ -452,156 +504,158 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildAppBar() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Flexible(
-            child: Image.asset(
-              'lib/images/bannerlogo1.png',
-              height: 28,
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) => const Text(
-                '5FLIX',
-                style: TextStyle(
-                  color: Color(0xFFE50914),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
+  return Container(
+    padding: const EdgeInsets.all(16),
+    child: Row(
+      children: [
+        Flexible(
+          child: Image.asset(
+            'lib/images/bannerlogo1.png',
+            height: 28,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => const Text(
+              '5FLIX',
+              style: TextStyle(
+                color: Color(0xFFE50914),
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          if (userRole == 'admin' && !isOffline)
-            IconButton(
-              icon: const Icon(
-                Icons.admin_panel_settings,
-                color: Color(0xFFE50914),
-                size: 22,
-              ),
-              onPressed: () {
+        ),
+        const SizedBox(width: 8),
+        Spacer(flex: 2,), // Add Spacer to push the next widgets to the right
+        if (userRole == 'admin' && !isOffline)
+          IconButton(
+            icon: const Icon(
+              Icons.admin_panel_settings,
+              color: Color(0xFFE50914),
+              size: 22,
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminPanelScreen(),
+                ),
+              );
+            },
+          ),
+        PopupMenuButton<String>(
+          icon: const Icon(
+            Icons.account_circle,
+            color: Colors.white70,
+            size: 22,
+          ),
+          color: const Color(0xFF181818),
+          onSelected: (value) {
+            switch (value) {
+              case 'downloads':
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const AdminPanelScreen(),
+                    builder: (context) => const DownloadsScreen(),
                   ),
                 );
-              },
+                break;
+              case 'clear_cache':
+                _showClearCacheDialog();
+                break;
+              case 'debug_toggle':
+                setState(() => _showDebugInfo = !_showDebugInfo);
+                break;
+              case 'test_api':
+                _performApiTest();
+                break;
+              case 'logout':
+                _logout();
+                break;
+            }
+          },
+          itemBuilder: (BuildContext context) => [
+            PopupMenuItem<String>(
+              value: 'profile',
+              child: Row(
+                children: [
+                  const Icon(Icons.person, color: Colors.white70, size: 18),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      username ?? 'User',
+                      style: const TextStyle(color: Colors.white),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          PopupMenuButton<String>(
-            icon: const Icon(
-              Icons.account_circle,
-              color: Colors.white70,
-              size: 22,
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'downloads',
+              child: Row(
+                children: [
+                  Icon(Icons.download, color: Colors.white70, size: 18),
+                  SizedBox(width: 12),
+                  Text('Downloads', style: TextStyle(color: Colors.white)),
+                ],
+              ),
             ),
-            color: const Color(0xFF181818),
-            onSelected: (value) {
-              switch (value) {
-                case 'downloads':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const DownloadsScreen(),
+            PopupMenuItem<String>(
+              value: 'debug_toggle',
+              child: Row(
+                children: [
+                  Icon(
+                    _showDebugInfo ? Icons.bug_report : Icons.bug_report_outlined,
+                    color: _showDebugInfo ? Colors.orange : Colors.white70,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    _showDebugInfo ? 'Hide Debug' : 'Show Debug',
+                    style: TextStyle(
+                      color: _showDebugInfo ? Colors.orange : Colors.white,
                     ),
-                  );
-                  break;
-                case 'clear_cache':
-                  _showClearCacheDialog();
-                  break;
-                case 'debug_toggle':
-                  setState(() => _showDebugInfo = !_showDebugInfo);
-                  break;
-                case 'test_api':
-                  _performApiTest();
-                  break;
-                case 'logout':
-                  _logout();
-                  break;
-              }
-            },
-            itemBuilder: (BuildContext context) => [
-              PopupMenuItem<String>(
-                value: 'profile',
-                child: Row(
-                  children: [
-                    const Icon(Icons.person, color: Colors.white70, size: 18),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        username ?? 'User',
-                        style: const TextStyle(color: Colors.white),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const PopupMenuDivider(),
-              const PopupMenuItem<String>(
-                value: 'downloads',
-                child: Row(
-                  children: [
-                    Icon(Icons.download, color: Colors.white70, size: 18),
-                    SizedBox(width: 12),
-                    Text('Downloads', style: TextStyle(color: Colors.white)),
-                  ],
-                ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'test_api',
+              child: Row(
+                children: [
+                  Icon(Icons.api, color: Colors.blue, size: 18),
+                  SizedBox(width: 12),
+                  Text('Test API', style: TextStyle(color: Colors.blue)),
+                ],
               ),
-              PopupMenuItem<String>(
-                value: 'debug_toggle',
-                child: Row(
-                  children: [
-                    Icon(
-                      _showDebugInfo ? Icons.bug_report : Icons.bug_report_outlined,
-                      color: _showDebugInfo ? Colors.orange : Colors.white70,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      _showDebugInfo ? 'Hide Debug' : 'Show Debug',
-                      style: TextStyle(
-                        color: _showDebugInfo ? Colors.orange : Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'clear_cache',
+              child: Row(
+                children: [
+                  Icon(Icons.clear_all, color: Colors.white70, size: 18),
+                  SizedBox(width: 12),
+                  Text('Clear Cache', style: TextStyle(color: Colors.white)),
+                ],
               ),
-              const PopupMenuItem<String>(
-                value: 'test_api',
-                child: Row(
-                  children: [
-                    Icon(Icons.api, color: Colors.blue, size: 18),
-                    SizedBox(width: 12),
-                    Text('Test API', style: TextStyle(color: Colors.blue)),
-                  ],
-                ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'logout',
+              child: Row(
+                children: [
+                  Icon(Icons.logout, color: Colors.red, size: 18),
+                  SizedBox(width: 12),
+                  Text('Logout', style: TextStyle(color: Colors.red)),
+                ],
               ),
-              const PopupMenuItem<String>(
-                value: 'clear_cache',
-                child: Row(
-                  children: [
-                    Icon(Icons.clear_all, color: Colors.white70, size: 18),
-                    SizedBox(width: 12),
-                    Text('Clear Cache', style: TextStyle(color: Colors.white)),
-                  ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout, color: Colors.red, size: 18),
-                    SizedBox(width: 12),
-                    Text('Logout', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
 
   Widget _buildOfflineBanner() {
     return Container(
@@ -753,9 +807,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildSearchTab() {
-    return Column(
+ Widget _buildSearchTab() {
+  return SingleChildScrollView(
+    child: Column(
       children: [
+        // Search TextField
         Padding(
           padding: const EdgeInsets.all(16.0),
           child: TextField(
@@ -784,10 +840,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onChanged: _filterVideos,
           ),
         ),
-        Expanded(child: _buildVideoGrid(filteredVideos)),
+        // Display filtered videos in a grid
+        _buildVideoGrid(filteredVideos),
       ],
-    );
-  }
+    ),
+  );
+}
+
+
 
   SliverToBoxAdapter _buildFeaturedSection() {
     return SliverToBoxAdapter(
@@ -848,12 +908,75 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildVideoGrid(List<VideoModel> videoList) {
     if (videoList.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(32.0),
+      return Padding(
+        padding: const EdgeInsets.all(32.0),
         child: Center(
-          child: Text(
-            'No videos found',
-            style: TextStyle(color: Color(0xFFB3B3B3), fontSize: 16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.movie_outlined,
+                size: 80,
+                color: Colors.white.withOpacity(0.3),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No videos found',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (isOffline)
+                Text(
+                  'Check your connection or try refreshing',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 14,
+                  ),
+                  textAlign: TextAlign.center,
+                )
+              else
+                Text(
+                  'No videos available at the moment',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 14,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              const SizedBox(height: 16),
+              if (_showDebugInfo && debugMessage != null)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    'Debug: $debugMessage',
+                    style: const TextStyle(
+                      color: Colors.blue,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _refreshData,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE50914),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -861,18 +984,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 0.7,
-        ),
-        itemCount: videoList.length,
-        itemBuilder: (context, index) {
-          return _buildVideoCard(videoList[index]);
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Calculate optimal grid parameters to avoid overflow
+          final screenWidth = constraints.maxWidth;
+          final padding = 16.0 * 2; // horizontal padding
+          final spacing = 12.0; // crossAxisSpacing
+          final availableWidth = screenWidth - padding;
+          final itemWidth = (availableWidth - spacing) / 2; // 2 columns
+          final childAspectRatio = itemWidth / (itemWidth / 0.7); // height calculation
+          
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 0.68, // Slightly adjusted to prevent overflow
+            ),
+            itemCount: videoList.length,
+            itemBuilder: (context, index) {
+              return _buildVideoCard(videoList[index]);
+            },
+          );
         },
       ),
     );
@@ -901,27 +1036,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                   child: Stack(
                     children: [
-                      Image.network(
-                        video.displayThumbnailUrl,
-                        fit: BoxFit.cover,
+                      // Use SmartVideoThumbnail instead of Image.network
+                      SmartVideoThumbnail(
+                        video: video,
                         width: double.infinity,
-                        headers: !isOffline ? {
-                          'Authorization': 'Bearer ${ApiService.getCurrentToken() ?? ''}',
-                        } : null,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
-                            color: const Color(0xFF333333),
-                            child: const Center(
-                              child: CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Color(0xFFE50914),
-                                ),
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                        placeholder: Container(
+                          color: const Color(0xFF333333),
+                          child: const Center(
+                            child: CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFFE50914),
                               ),
                             ),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) => Container(
+                          ),
+                        ),
+                        errorWidget: Container(
                           color: const Color(0xFF333333),
                           child: const Icon(
                             Icons.movie,
@@ -1008,28 +1139,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 child: Stack(
                   children: [
-                    Image.network(
-                      video.displayThumbnailUrl,
+                    // Use SmartVideoThumbnail instead of Image.network
+                    SmartVideoThumbnail(
+                      video: video,
                       width: double.infinity,
                       height: double.infinity,
                       fit: BoxFit.cover,
-                      headers: !isOffline ? {
-                        'Authorization': 'Bearer ${ApiService.getCurrentToken() ?? ''}',
-                      } : null,
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return Container(
-                          color: const Color(0xFF333333),
-                          child: const Center(
-                            child: CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Color(0xFFE50914),
-                              ),
+                      placeholder: Container(
+                        color: const Color(0xFF333333),
+                        child: const Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Color(0xFFE50914),
                             ),
                           ),
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) => Container(
+                        ),
+                      ),
+                      errorWidget: Container(
                         color: const Color(0xFF333333),
                         child: const Icon(
                           Icons.movie,
@@ -1078,42 +1204,134 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           ),
                         ),
                       ),
+                    // Quality badge from VideoModel
+                    if (video.isHighQuality)
+                      Positioned(
+                        bottom: 8,
+                        left: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(
+                            video.qualityBadge,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    // Duration overlay
+                    Positioned(
+                      bottom: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Text(
+                          video.displayDuration,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
-            Expanded(
+            // Fix overflow issue with Flexible widget
+            Flexible(
               flex: 2,
               child: Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  mainAxisSize: MainAxisSize.min, // Important for overflow fix
                   children: [
-                    Text(
-                      video.title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                    Flexible(
+                      child: Text(
+                        video.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    Text(
-                      '${video.year} • ${video.genre}',
-                      style: const TextStyle(
-                        color: Color(0xFFB3B3B3),
-                        fontSize: 12,
+                    const SizedBox(height: 4), // Fixed spacing instead of spaceEvenly
+                    Flexible(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${video.year} • ${video.genre}',
+                              style: const TextStyle(
+                                color: Color(0xFFB3B3B3),
+                                fontSize: 12,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (video.isRecentlyAdded)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.orange,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: const Text(
+                                'NEW',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    Text(
-                      video.displayDuration,
-                      style: const TextStyle(
-                        color: Color(0xFFB3B3B3),
-                        fontSize: 10,
+                    const SizedBox(height: 2), // Fixed spacing
+                    Flexible(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              video.displayDuration,
+                              style: const TextStyle(
+                                color: Color(0xFFB3B3B3),
+                                fontSize: 10,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (video.fileSize != null && video.fileSize! > 0)
+                            Flexible(
+                              child: Text(
+                                video.displayFileSize,
+                                style: const TextStyle(
+                                  color: Color(0xFFB3B3B3),
+                                  fontSize: 9,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],

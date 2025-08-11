@@ -3,6 +3,7 @@ import 'package:five_flix/models/video_model.dart';
 import 'package:five_flix/services/download_service.dart';
 import 'package:five_flix/services/api_service.dart';
 import 'package:five_flix/screens/VideoPlayerScreen.dart';
+import 'package:five_flix/models/download_model.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   final VideoModel video;

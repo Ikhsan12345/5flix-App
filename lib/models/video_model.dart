@@ -9,7 +9,7 @@ class VideoModel {
   final int year;
   final bool isFeatured;
   
-  // New fields from backend
+  // Enhanced fields from backend API
   final double? durationMinutes;
   final String? durationFormatted;
   final String? streamUrl;
@@ -17,6 +17,11 @@ class VideoModel {
   final String? originalThumbnailUrl;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  
+  // Additional fields for better API integration
+  final int? fileSize;
+  final String? mimeType;
+  final String? quality;
 
   VideoModel({
     required this.id,
@@ -35,6 +40,9 @@ class VideoModel {
     this.originalThumbnailUrl,
     this.createdAt,
     this.updatedAt,
+    this.fileSize,
+    this.mimeType,
+    this.quality,
   });
 
   factory VideoModel.fromJson(Map<String, dynamic> json) {
@@ -43,9 +51,10 @@ class VideoModel {
         id: _parseInt(json['id']),
         title: json['title']?.toString() ?? '',
         genre: json['genre']?.toString() ?? '',
-        // Use stream_url from backend if available, fallback to thumbnail_url
-        thumbnailUrl: json['thumbnail_url']?.toString() ?? '',
-        // Use stream_url from backend if available, fallback to video_url or original_video_url
+        // Use the appropriate thumbnail URL based on API response
+        thumbnailUrl: json['thumbnail_url']?.toString() ?? 
+                     json['original_thumbnail_url']?.toString() ?? '',
+        // Prioritize stream_url for video playback
         videoUrl: json['stream_url']?.toString() ?? 
                  json['video_url']?.toString() ?? 
                  json['original_video_url']?.toString() ?? '',
@@ -54,7 +63,7 @@ class VideoModel {
         year: _parseInt(json['year']),
         isFeatured: _parseBool(json['is_featured']),
         
-        // New fields
+        // Enhanced fields
         durationMinutes: _parseDouble(json['duration_minutes']),
         durationFormatted: json['duration_formatted']?.toString(),
         streamUrl: json['stream_url']?.toString(),
@@ -62,6 +71,11 @@ class VideoModel {
         originalThumbnailUrl: json['original_thumbnail_url']?.toString(),
         createdAt: _parseDateTime(json['created_at']),
         updatedAt: _parseDateTime(json['updated_at']),
+        
+        // Additional fields
+        fileSize: _parseInt(json['file_size']),
+        mimeType: json['mime_type']?.toString(),
+        quality: json['quality']?.toString(),
       );
     } catch (e) {
       print('VideoModel.fromJson error: $e');
@@ -70,7 +84,7 @@ class VideoModel {
     }
   }
 
-  // Check if this is a B2 URL that needs special handling
+  // Check if this video uses Backblaze B2 storage
   bool get isB2Video {
     return (originalVideoUrl?.contains('backblazeb2.com') ?? false) || 
            (originalVideoUrl?.contains('.b2.') ?? false) ||
@@ -85,25 +99,66 @@ class VideoModel {
            thumbnailUrl.contains('.b2.');
   }
 
-  // Get the appropriate video URL - prefer stream URL for streaming
+  // Get the appropriate URL for streaming
   String get playbackUrl {
-    return streamUrl ?? videoUrl;
+    // For API-based streaming, always use the backend streaming endpoint
+    return streamUrl ?? '/api/videos/$id/stream';
   }
 
-  // Get the appropriate thumbnail URL
+  // Get the appropriate URL for thumbnails
   String get displayThumbnailUrl {
+    // For API-based thumbnails, use the backend thumbnail endpoint
+    if (isB2Thumbnail || streamUrl != null) {
+      return '/api/videos/$id/thumbnail';
+    }
     return thumbnailUrl;
   }
 
-  // Get formatted duration
+  // Get formatted duration string
   String get displayDuration {
-    if (durationFormatted != null) {
+    if (durationFormatted != null && durationFormatted!.isNotEmpty) {
       return durationFormatted!;
     }
     return formatDuration(duration);
   }
 
-  // Helper methods
+  // Get file size in human readable format
+  String get displayFileSize {
+    if (fileSize == null || fileSize == 0) return 'Unknown';
+    
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    int unitIndex = 0;
+    double size = fileSize!.toDouble();
+    
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+    
+    return '${size.toStringAsFixed(1)} ${units[unitIndex]}';
+  }
+
+  // Check if video has high quality indicators
+  bool get isHighQuality {
+    if (quality != null) {
+      final q = quality!.toLowerCase();
+      return q.contains('1080') || q.contains('4k') || q.contains('hd') || q.contains('uhd');
+    }
+    return false;
+  }
+
+  // Get quality badge text
+  String get qualityBadge {
+    if (quality != null && quality!.isNotEmpty) {
+      return quality!.toUpperCase();
+    }
+    if (fileSize != null && fileSize! > 500 * 1024 * 1024) { // > 500MB
+      return 'HD';
+    }
+    return 'SD';
+  }
+
+  // Helper parsing methods
   static int _parseInt(dynamic value) {
     if (value == null) return 0;
     if (value is int) return value;
@@ -145,17 +200,22 @@ class VideoModel {
   }
 
   static String formatDuration(int seconds) {
+    if (seconds <= 0) return '0m';
+    
     final hours = seconds ~/ 3600;
     final minutes = (seconds % 3600) ~/ 60;
     final remainingSeconds = seconds % 60;
 
     if (hours > 0) {
       return '${hours}h ${minutes}m';
+    } else if (minutes > 0) {
+      return '${minutes}m ${remainingSeconds > 0 ? '${remainingSeconds}s' : ''}';
     } else {
-      return '${minutes}m';
+      return '${remainingSeconds}s';
     }
   }
 
+  // Convert to JSON for API requests
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -174,7 +234,64 @@ class VideoModel {
       'original_thumbnail_url': originalThumbnailUrl,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
+      'file_size': fileSize,
+      'mime_type': mimeType,
+      'quality': quality,
     };
+  }
+
+  // Convert to map for local storage
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'genre': genre,
+      'thumbnail_url': thumbnailUrl,
+      'video_url': videoUrl,
+      'description': description,
+      'duration': duration,
+      'year': year,
+      'is_featured': isFeatured ? 1 : 0,
+      'duration_minutes': durationMinutes,
+      'duration_formatted': durationFormatted,
+      'stream_url': streamUrl,
+      'original_video_url': originalVideoUrl,
+      'original_thumbnail_url': originalThumbnailUrl,
+      'created_at': createdAt?.millisecondsSinceEpoch,
+      'updated_at': updatedAt?.millisecondsSinceEpoch,
+      'file_size': fileSize,
+      'mime_type': mimeType,
+      'quality': quality,
+    };
+  }
+
+  // Create from local storage map
+  factory VideoModel.fromMap(Map<String, dynamic> map) {
+    return VideoModel(
+      id: map['id'] ?? 0,
+      title: map['title'] ?? '',
+      genre: map['genre'] ?? '',
+      thumbnailUrl: map['thumbnail_url'] ?? '',
+      videoUrl: map['video_url'] ?? '',
+      description: map['description'],
+      duration: map['duration'] ?? 0,
+      year: map['year'] ?? 0,
+      isFeatured: (map['is_featured'] ?? 0) == 1,
+      durationMinutes: map['duration_minutes']?.toDouble(),
+      durationFormatted: map['duration_formatted'],
+      streamUrl: map['stream_url'],
+      originalVideoUrl: map['original_video_url'],
+      originalThumbnailUrl: map['original_thumbnail_url'],
+      createdAt: map['created_at'] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(map['created_at'])
+          : null,
+      updatedAt: map['updated_at'] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(map['updated_at'])
+          : null,
+      fileSize: map['file_size'],
+      mimeType: map['mime_type'],
+      quality: map['quality'],
+    );
   }
 }
 
@@ -196,6 +313,9 @@ extension VideoModelExtension on VideoModel {
     String? originalThumbnailUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
+    int? fileSize,
+    String? mimeType,
+    String? quality,
   }) {
     return VideoModel(
       id: id ?? this.id,
@@ -214,10 +334,37 @@ extension VideoModelExtension on VideoModel {
       originalThumbnailUrl: originalThumbnailUrl ?? this.originalThumbnailUrl,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      fileSize: fileSize ?? this.fileSize,
+      mimeType: mimeType ?? this.mimeType,
+      quality: quality ?? this.quality,
     );
   }
 
   String toDebugString() {
-    return 'VideoModel(id: $id, title: "$title", streamUrl: ${streamUrl != null ? "available" : "null"}, isB2Video: $isB2Video, isB2Thumbnail: $isB2Thumbnail)';
+    return 'VideoModel(id: $id, title: "$title", streamUrl: ${streamUrl != null ? "available" : "null"}, isB2Video: $isB2Video, isB2Thumbnail: $isB2Thumbnail, quality: ${quality ?? "unknown"}, size: ${displayFileSize})';
+  }
+
+  // Check if video is recently added (within last 30 days)
+  bool get isRecentlyAdded {
+    if (createdAt == null) return false;
+    final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+    return createdAt!.isAfter(thirtyDaysAgo);
+  }
+
+  // Get age of video in days
+  int get ageInDays {
+    if (createdAt == null) return 0;
+    return DateTime.now().difference(createdAt!).inDays;
+  }
+
+  // Get a summary for search/filtering
+  String get searchableText {
+    return '$title $genre ${description ?? ''}'.toLowerCase();
+  }
+
+  // Check if video matches search query
+  bool matchesSearch(String query) {
+    if (query.isEmpty) return true;
+    return searchableText.contains(query.toLowerCase());
   }
 }

@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-import 'package:five_flix/models/user_model.dart';
 import 'package:five_flix/models/download_model.dart';
 import 'package:five_flix/models/video_model.dart';
 
